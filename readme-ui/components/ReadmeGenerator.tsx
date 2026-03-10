@@ -75,6 +75,8 @@ export default function ReadmeGenerator() {
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
   const GITHUB_CLIENT_ID = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
 
+
+
   // --- SIDE EFFECTS ---
   useEffect(() => {
     if (result?.markdown) {
@@ -170,6 +172,30 @@ export default function ReadmeGenerator() {
     document.body.removeChild(link);
     URL.revokeObjectURL(blobUrl);
   };
+  const [isAuthorized, setIsAuthorized] = useState(false);
+
+// useEffect ke andar token check karo
+useEffect(() => {
+  const token = localStorage.getItem("gh_token");
+  if (token) setIsAuthorized(true);
+
+  const code = new URLSearchParams(window.location.search).get("code");
+  if (code) {
+    fetch(`${BACKEND_URL}/github/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.access_token) {
+        localStorage.setItem("gh_token", data.access_token);
+        setIsAuthorized(true); // ✅ Set state here
+        window.history.replaceState({}, document.title, "/");
+      }
+    });
+  }
+}, [BACKEND_URL]);
 
   const cleanMarkdown = editableMarkdown.replace(/\)\s*[\r\n]+\s*\!\[/g, ") ![");
 
@@ -261,13 +287,19 @@ export default function ReadmeGenerator() {
                 <div className="flex items-center gap-3">
                   {/* ✅ THE PUSH BUTTON */}
                   <button 
-                    onClick={handlePushToGithub}
-                    disabled={pushing}
-                    className="flex items-center gap-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-white/5 active:scale-95 shadow-xl disabled:opacity-50"
-                  >
-                    {pushing ? <Loader2 className="animate-spin w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5 text-green-400" />}
-                    <span>{pushing ? "Pushing..." : "Push to GitHub"}</span>
-                  </button>
+  onClick={handlePushToGithub}
+  disabled={pushing}
+  className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-white/5 active:scale-95 shadow-xl ${
+    isAuthorized ? "bg-green-600/20 text-green-400 border-green-500/30" : "bg-zinc-800 text-zinc-300"
+  }`}
+>
+  {pushing ? <Loader2 className="animate-spin w-3.5 h-3.5" /> : (
+    isAuthorized ? <ShieldCheck className="w-3.5 h-3.5 text-green-400" /> : <Send className="w-3.5 h-3.5 text-blue-400" />
+  )}
+  <span>
+    {pushing ? "Pushing..." : (isAuthorized ? "Authorized & Ready" : "Push to GitHub")}
+  </span>
+</button>
 
                   <button 
                     onClick={handleDownload}
