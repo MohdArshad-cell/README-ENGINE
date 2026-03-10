@@ -1,4 +1,6 @@
 import os
+import httpx # Isse API calls karenge
+import base64 # GitHub content encode karne ke liye
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,9 +28,66 @@ app.add_middleware(
 # 🧠 Gemini Setup
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel('gemini-2.5-flash')
-
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 class RepoRequest(BaseModel):
     url: str
+
+@app.post("/github/token")
+async def get_github_token(request: dict):
+    code = request.get("code")
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            "https://github.com/login/oauth/access_token",
+            params={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+            },
+            headers={"Accept": "application/json"},
+        )
+        return res.json()
+
+# 2. Direct Push logic
+@app.post("/github/push")
+async def push_to_github(request: dict):
+    token = request.get("token")
+    repo_url = request.get("repo_url") 
+    content = request.get("content")
+    
+    # URL se owner aur repo nikalna (Logic: https://github.com/owner/repo)
+    parts = repo_url.rstrip("/").split("/")
+    owner, repo = parts[-2], parts[-1]
+    
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        # README dhoondo (SHA nikalne ke liye agar pehle se exist karti hai)
+        get_res = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/contents/README.md",
+            headers=headers
+        )
+        sha = get_res.json().get("sha") if get_res.status_code == 200 else None
+
+        # Update / Create file
+        payload = {
+            "message": "🚀 README updated via README ENGINE",
+            "content": base64.b64encode(content.encode()).decode(),
+        }
+        if sha: payload["sha"] = sha
+
+        put_res = await client.put(
+            f"https://api.github.com/repos/{owner}/{repo}/contents/README.md",
+            headers=headers,
+            json=payload
+        )
+        
+        if put_res.status_code in [200, 201]:
+            return {"status": "success", "url": put_res.json()["content"]["html_url"]}
+        raise HTTPException(status_code=400, detail="GitHub Push Failed")
 
 @app.post("/generate-readme")
 async def generate_readme(request: RepoRequest):
