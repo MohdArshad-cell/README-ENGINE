@@ -1,6 +1,9 @@
-# Readme Pro Engine
+# Readme Engine
 
-![Banner](https://socialify.git.ci/readme-pro-engine/network?theme=Dark)
+![License](https://img.shields.io/github/license/MohdArshad-cell/Tectonic)
+![Last Commit](https://img.shields.io/github/last-commit/MohdArshad-cell/Tectonic)
+
+
 
 ![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python&logoColor=white) ![Next.js](https://img.shields.io/badge/Next.js-14-black?logo=nextdotjs&logoColor=white) ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black) ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-orange?logo=tailwindcss&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-blue?logo=typescript&logoColor=white) ![Framer Motion](https://img.shields.io/badge/Framer_Motion-purple?logo=framer&logoColor=white) ![Lucide Icons](https://img.shields.io/badge/Lucide_Icons-blueviolet) ![React Hot Toast](https://img.shields.io/badge/Toast-Notifications-red) ![React Markdown](https://img.shields.io/badge/Markdown-Renderer-informational) ![React Syntax Highlighter](https://img.shields.io/badge/Syntax-Highlighter-blue) ![ESLint](https://img.shields.io/badge/ESLint-Code_Quality-4B32C3?logo=eslint&logoColor=white)
 
@@ -184,9 +187,9 @@ We welcome contributions and feedback to enhance the Readme Pro Engine.
 
 For inquiries, please reach out:
 
-*   📧 Email: `contact@example.com`
-*   📱 WhatsApp: `+1234567890`
-*   📍 Location: `Global`
+*   📧 Email: `arshadmohd8574@gmail.com`
+*   📱 WhatsApp: `+91 7887096421`
+*   📍 Location: `India`
 
 ### License
 
