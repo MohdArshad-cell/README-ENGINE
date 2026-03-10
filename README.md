@@ -1,6 +1,6 @@
 # README Pro Engine
 
-![Banner](https://socialify.git.ci/readme-pro-engine/network?theme=Dark)
+![Banner](https://socialify.git.ci/MohdArshad-cell/README-ENGINE/image?theme=Dark&font=Inter&language=1&owner=1&name=1&pattern=Plus&stargazers=1&forks=1&issues=1&pulls=1)
 
 ![Node.js](https://img.shields.io/badge/Node.js-18.x-green?style=flat&logo=nodedotjs) ![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat&logo=python) ![Next.js](https://img.shields.io/badge/Next.js-^14.0.0-black?style=flat&logo=nextdotjs) ![React](https://img.shields.io/badge/React-^18.0.0-blueviolet?style=flat&logo=react) ![TypeScript](https://img.shields.io/badge/TypeScript-^5.0.0-blue?style=flat&logo=typescript) ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-^3.0.0-06B6D4?style=flat&logo=tailwindcss) ![Framer Motion](https://img.shields.io/badge/framer--motion-^10.0.0-rebeccapurple?style=flat&logo=framer) ![Lucide React](https://img.shields.io/badge/lucide--react-^0.292.0-orange?style=flat&logo=lucide) ![ESLint](https://img.shields.io/badge/ESLint-^8.0.0-4B32C3?style=flat&logo=eslint) ![Prettier](https://img.shields.io/badge/Prettier-^3.0.0-F7B93E?style=flat&logo=prettier)
 
