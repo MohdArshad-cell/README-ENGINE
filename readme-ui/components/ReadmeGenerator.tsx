@@ -67,24 +67,32 @@ export default function ReadmeGenerator() {
   }, [result]);
 
   const handleGenerate = async () => {
-    if (!url) return;
-    setLoading(true);
-    setResult(null);
-    try {
-      const response = await fetch("http://localhost:8000/generate-readme", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      if (!response.ok) throw new Error("API Offline");
-      const data = await response.json();
-      setResult(data);
-    } catch (err) {
-      alert("System Crash: Ensure FastAPI is running on port 8000");
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (!url) return;
+  setLoading(true);
+  setResult(null);
+
+  // ✅ Step 1: Backend URL Logic
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
+  try {
+    const response = await fetch(`${backendUrl}/generate-readme`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    
+    if (!response.ok) throw new Error(`API Status: ${response.status}`);
+    
+    const data = await response.json();
+    setResult(data);
+  } catch (err) {
+    // 🔥 Fix: Dynamic Error Message
+    alert(`System Crash: Unreachable at ${backendUrl}. Check if Render server is awake!`);
+    console.error("Connection Error:", err);
+  } finally {
+    setLoading(false);
+  }
+};
 
 const handleDownload = () => {
   if (!editableMarkdown) return;
