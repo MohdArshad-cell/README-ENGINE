@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/* Yahan apne custom futuristic styles continue kar sakte ho */
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+
+/* Tables styling for the futuristic look */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+  font-size: 0.875rem;
+}
+
+th {
+  text-align: left;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #3b82f6; /* Blue Accent */
+}
