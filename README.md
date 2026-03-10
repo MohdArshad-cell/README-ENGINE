@@ -1,8 +1,15 @@
 # README Pro Generator
 
-![Banner](https://socialify.git.ci/your-org/your-repo/network?theme=Dark)
+![Banner](https://socialify.git.ci/MohdArshad-cell/Tectonic/image?theme=Dark)
 
-![framer-motion](https://img.shields.io/badge/framer--motion-blue?style=flat-square&logo=framer-motion&logoColor=white) ![lucide-react](https://img.shields.io/badge/lucide--react-blue?style=flat-square&logo=lucide-react&logoColor=white) ![next](https://img.shields.io/badge/next-blue?style=flat-square&logo=next&logoColor=white) ![react](https://img.shields.io/badge/react-blue?style=flat-square&logo=react&logoColor=white) ![react-dom](https://img.shields.io/badge/react--dom-blue?style=flat-square&logo=react-dom&logoColor=white) ![react-markdown](https://img.shields.io/badge/react--markdown-blue?style=flat-square&logo=react-markdown&logoColor=white) ![react-syntax-highlighter](https://img.shields.io/badge/react--syntax--highlighter-blue?style=flat-square&logo=react-syntax-highlighter&logoColor=white) ![remark-gfm](https://img.shields.io/badge/remark--gfm-blue?style=flat-square&logo=remark-gfm&logoColor=white) ![postcss](https://img.shields.io/badge/tailwindcss--postcss-blue?style=flat-square&logo=postcss&logoColor=white) ![node](https://img.shields.io/badge/types--node-blue?style=flat-square&logo=node&logoColor=white) ![react](https://img.shields.io/badge/types--react-blue?style=flat-square&logo=react&logoColor=white) ![react-dom](https://img.shields.io/badge/types--react--dom-blue?style=flat-square&logo=react-dom&logoColor=white) ![eslint](https://img.shields.io/badge/eslint-blue?style=flat-square&logo=eslint&logoColor=white) ![eslint-config-next](https://img.shields.io/badge/eslint--config--next-blue?style=flat-square&logo=eslint-config-next&logoColor=white) ![tailwindcss](https://img.shields.io/badge/tailwindcss-blue?style=flat-square&logo=tailwindcss&logoColor=white) ![typescript](https://img.shields.io/badge/typescript-blue?style=flat-square&logo=typescript&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-black?style=flat-square&logo=nextdotjs&logoColor=white)
+![React](https://img.shields.io/badge/React-blue?style=flat-square&logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-blue?style=flat-square&logo=typescript&logoColor=white)
+![TailwindCSS](https://img.shields.io/badge/TailwindCSS-blue?style=flat-square&logo=tailwindcss&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-blue?style=flat-square&logo=node.js&logoColor=white)
+![Framer Motion](https://img.shields.io/badge/Framer--Motion-blue?style=flat-square&logo=framer&logoColor=white)
+![Lucide](https://img.shields.io/badge/Lucide-blue?style=flat-square)
+![ESLint](https://img.shields.io/badge/ESLint-blue?style=flat-square&logo=eslint&logoColor=white)
 
 ## Executive Summary
 
