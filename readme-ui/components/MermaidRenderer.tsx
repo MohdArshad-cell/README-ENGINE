@@ -4,7 +4,7 @@ import mermaid from "mermaid";
 
 // 🔧 MERMAID CONFIG
 mermaid.initialize({
-  startOnLoad: true,
+  startOnLoad: false, // Manual render use kar rahe hain
   theme: "dark",
   securityLevel: "loose",
   themeVariables: {
@@ -21,35 +21,39 @@ export default function MermaidRenderer({ chart }: { chart: string }) {
   useEffect(() => {
     if (!chart || !ref.current) return;
 
-    // 🚀 FRONTEND AGGRESSIVE CLEANER (V6)
-    const cleanChart = chart
-      // 1. Fix Labeled Arrows: A --> Text --> B to A -->|Text| B
-      .replace(/-->\s*(.*?)\s*-->/g, "-->|$1| ")
-      // 2. Flatten Subgraph Titles: Remove nested quotes and brackets
-      .replace(/subgraph\s+"?(.*?)"?/g, (m, g) => `subgraph "${g.replace(/[()"]/g, "").trim()}"`)
-      // 3. Universal Label Flattener: No double quotes, no parentheses
-      .replace(/(\[|\(|\{)(.*?)(\]|\)|\})/g, (m, bO, content, bC) => {
-        const flatContent = content.replace(/[()"]/g, "").trim().replace(/\s+/g, " ");
-        return `${bO}"${flatContent}"${bC}`;
-      })
-      // 4. Broken arrow fix
-      .replace(/ --\s/g, " --> ");
-
-    // Unique ID generation
-    const id = `mermaid-svg-${Math.random().toString(36).substr(2, 9)}`;
-
     const renderDiagram = async () => {
+      // 🚀 FRONTEND SHIELD: Final sanitization before passing to Mermaid
+      let cleanChart = chart
+      .replace(/--\|/g, "-->|") // 🚀 Fixing the Lexical Error directly
+  .replace(/--\s/g, " --> ")
+        .replace(/\\"/g, '"')         // Fix escaped quotes
+        .replace(/""/g, '"')          // Fix double quotes
+        .replace(/\]"\]/g, '"]')       // Fix common bracket hallucination
+        .replace(/-->\s*(.*?)\s*-->/g, "-->|$1| ") // Fix labeled arrows
+        .replace(/ --\s/g, " --> ");   // Fix broken arrows
+
+      // Ensure it starts with graph TD
+      cleanChart = cleanChart.trim();
+      if (!cleanChart.startsWith("graph TD") && !cleanChart.startsWith("flowchart TD")) {
+        cleanChart = "graph TD\n" + cleanChart.replace(/graph TD|flowchart TD/g, "").trim();
+      }
+
+      // Unique ID for every render
+      const id = `mermaid-svg-${Math.random().toString(36).substr(2, 9)}`;
+
       try {
-        // Clear previous content
-        const { svg } = await mermaid.render(id, cleanChart);
-        setSvg(svg);
+        const { svg: renderedSvg } = await mermaid.render(id, cleanChart);
+        setSvg(renderedSvg);
       } catch (err) {
         console.error("Mermaid Render Error:", err);
-        // Fallback UI if rendering still fails
+        // Stylish Fallback UI
         setSvg(`
-          <div class="flex flex-col items-center p-4 text-center">
-            <p class="text-red-500 text-[10px] font-black uppercase tracking-widest mb-2">Render_Engine_Failure</p>
-            <p class="text-zinc-600 text-[9px] font-mono leading-tight">Syntax too complex for real-time visualization.<br/>Check 'Editor' for raw Mermaid code.</p>
+          <div class="flex flex-col items-center justify-center p-12 border border-red-500/20 bg-red-500/5 rounded-[2rem]">
+            <p class="text-red-500 text-[10px] font-black uppercase tracking-[0.3em] mb-2">Synthesis_Failed</p>
+            <p class="text-zinc-500 text-[9px] font-mono leading-relaxed">
+              Syntax error in generated graph. <br/> 
+              Try clicking 'Initialize Scan' again.
+            </p>
           </div>
         `);
       }
@@ -62,7 +66,7 @@ export default function MermaidRenderer({ chart }: { chart: string }) {
     <div 
       id="mermaid-diagram-container"
       ref={ref} 
-      className="w-full overflow-x-auto flex justify-center bg-[#0d1117]/50 p-8 rounded-[2rem] border border-white/5 shadow-inner"
+      className="w-full overflow-x-auto flex justify-center bg-[#0d1117]/50 p-12 rounded-[2.5rem] border border-white/5 shadow-2xl transition-all duration-500"
       dangerouslySetInnerHTML={{ __html: svg }} 
     />
   );

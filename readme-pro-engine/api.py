@@ -120,84 +120,80 @@ async def generate_diagram(request: dict):
         analyzer = ProjectAnalyzer(target_path)
         report = analyzer.analyze(data)
 
-        # 🚀 IMPROVEMENT 1: Richer Context (Files aur Structure bhi do)
         full_context = {
             "stack": report.get("primary_stack"),
             "frameworks": report.get("detected_frameworks"),
-            "dependencies": report.get("key_dependencies")[:15], # Top 15 dependencies
-            "structure": list(data.get("structure", []))[:30]    # Top 30 file paths
+            "dependencies": report.get("key_dependencies")[:15],
+            "structure": list(data.get("structure", []))[:30]
         }
 
-        # 🚀 IMPROVEMENT 2: Advanced Prompt with Mermaid Styling
+        # 🎯 PROMPT: Logic clear, constraints tight.
         prompt = f"""
-        You are a System Architect. Create a HIGHLY VISUAL and STYLIZED system architecture diagram using Mermaid.js 'graph TD'.
+        Analyze this project and return a JSON object representing the system architecture.
+        STRICT: Return ONLY JSON. No text, no markdown.
         
-        PROJECT DATA:
-        {full_context}
-
-        DIAGRAM RULES:
-        1. Use SUBGRAPHS to group components (e.g., subgraph "Client Side", "Server Side", "Database").
-        2. Use stylized nodes:
-           - Frontend components should be in rounded [NodeName]
-           - Databases in cylinder [(Database)]
-           - External APIs in rhomboid {{API}}
-        3. ADD STYLING:
-           - Define 'classDef' for different layers (e.g., classDef frontend fill:#3b82f6,color:#fff; classDef backend fill:#10b981,color:#fff).
-           - Apply these classes to nodes.
-        4. Focus on actual data flow based on the file structure (e.g., if 'routes/' exists, show it connecting to 'controllers/').
-        5. IMPORTANT: Node labels MUST NOT contain parentheses () or special characters unless they are wrapped in double quotes. 
-           Example: A["Frontend (React/Next.js)"] instead of A[Frontend (React/Next.js)].
-           ...
-        Output ONLY the Mermaid code block. No explanations.
+        Format:
+        {{
+          "subgraphs": [
+            {{ "name": "Frontend", "nodes": [ {{"id": "A", "label": "React UI"}}] }},
+            {{ "name": "Backend", "nodes": [ {{"id": "B", "label": "FastAPI"}}] }}
+          ],
+          "connections": [
+            {{ "from": "A", "to": "B", "label": "API Call" }}
+          ]
+        }}
+        Context: {full_context}
         """
 
-        # generate_diagram function ke andar response cleaning logic mein ye line add karo:
-
         response = model.generate_content(prompt)
-        mermaid_code = response.text.replace("```mermaid", "").replace("```", "").strip()
+        import json
+        # Cleanup: sometimes AI puts markdown backticks even when told not to
+        json_str = response.text.replace("```json", "").replace("```", "").strip()
+        data = json.loads(json_str)
 
-        # 🚀 THE "V6 NUCLEAR SANITIZER" - No more syntax bullshit
-        import re
-
-        # Step 1: Subgraph titles fix (Strip everything except Alphanumeric)
-        # subgraph "Client Side (""Browser"")" -> subgraph "Client Side Browser"
-        def clean_subgraph(match):
-            title = match.group(1)
-            clean_title = re.sub(r'[^a-zA-Z0-9 ]', ' ', title).strip()
-            return f'subgraph "{clean_title}"'
+        # 🏗️ BUILD MERMAID MANUALLY (The "Dictator" Way)
+        # 🏗️ BUILD MERMAID MANUALLY (The "Absolute Dictator" Way)
+        lines = ["graph TD"]
         
-        mermaid_code = re.sub(r'subgraph\s+"?(.*?)"?(?=\n|$)', clean_subgraph, mermaid_code)
+        # Styles
+        lines.append('classDef frontend fill:#3b82f6,color:#fff,stroke:#1d4ed8,stroke-width:2px;')
+        lines.append('classDef backend fill:#10b981,color:#fff,stroke:#047857,stroke-width:2px;')
+        lines.append('classDef db fill:#f59e0b,color:#fff,stroke:#b45309,stroke-width:2px;')
 
-        # Step 2: Fix Labeled Arrows (A --> Text --> B to A -->|Text| B)
-        mermaid_code = re.sub(r'-->\s*(.*?)\s*-->', r'-->|\1|', mermaid_code)
+        for sub in data.get("subgraphs", []):
+            safe_sub_name = "".join(filter(str.isalnum, sub["name"]))
+            lines.append(f'  subgraph {safe_sub_name} ["{sub["name"]}"]')
+            for node in sub.get("nodes", []):
+                # Clean label and ID - IDs MUST be alphanumeric
+                safe_id = "".join(filter(str.isalnum, node["id"]))
+                safe_label = "".join(c for c in node["label"] if c.isalnum() or c == ' ')
+                
+                # Style logic
+                style = ":::frontend" if "front" in sub["name"].lower() else ":::backend"
+                if "db" in sub["name"].lower() or "data" in sub["name"].lower():
+                    style = ":::db"
+                
+                lines.append(f'    {safe_id}["{safe_label.strip()}"]{style}')
+            lines.append("  end")
 
-        # Step 3: Node Label Flattener (The most aggressive part)
-        def ultimate_label_fix(match):
-            node_id = match.group(1)
-            bracket_open = match.group(2)
-            content = match.group(3)
-            bracket_close = match.group(4)
+        for conn in data.get("connections", []):
+            # 🚀 FIXED ARROW SYNTAX: Must be -->|Label|
+            from_id = "".join(filter(str.isalnum, conn["from"]))
+            to_id = "".join(filter(str.isalnum, conn["to"]))
+            label = "".join(filter(str.isalnum, conn.get("label", "")))
             
-            # Remove ALL quotes, parentheses, and brackets from inside the label
-            clean_content = re.sub(r'[^a-zA-Z0-9 ]', ' ', content).strip()
-            # Multiple spaces ko single space mein badlo
-            clean_content = ' '.join(clean_content.split())
-            
-            # Re-wrap in a clean, single set of quotes
-            return f'{node_id}{bracket_open}"{clean_content}"{bracket_close}'
-
-        # Target: NodeID[Label], NodeID(Label), NodeID{Label}
-        mermaid_code = re.sub(r'(\w+)(\[|\(|\{)(.*?)(\]|\)|\})', ultimate_label_fix, mermaid_code)
-
-        # Step 4: Final Safety Net - remove any double-double quotes that might have survived
-        mermaid_code = mermaid_code.replace('""', '"')
-        # Fix broken arrows if Gemini missed a '-'
-        mermaid_code = re.sub(r' --(?![->])', ' --> ', mermaid_code)
+            if label:
+                lines.append(f'  {from_id} -->|{label}| {to_id}')
+            else:
+                lines.append(f'  {from_id} --> {to_id}')
 
         return {
             "status": "success",
-            "mermaid_code": mermaid_code
+            "mermaid_code": "\n".join(lines)
         }
+    except Exception as e:
+        print(f"Bhai Error: {e}")
+        return {"status": "error", "message": "Logic failed, try again."}
     finally:
         git_mgr.cleanup()
 
