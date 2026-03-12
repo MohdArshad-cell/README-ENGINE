@@ -88,6 +88,41 @@ async def push_to_github(request: dict):
         if put_res.status_code in [200, 201]:
             return {"status": "success", "url": put_res.json()["content"]["html_url"]}
         raise HTTPException(status_code=400, detail="GitHub Push Failed")
+    
+
+# routes/diagrams.py (Ya direct api.py mein add karo)
+@app.post("/generate-diagram")
+async def generate_diagram(request: dict):
+    repo_url = request.get("url")
+    if not repo_url:
+        raise HTTPException(status_code=400, detail="Repo URL missing")
+
+    # 1. Metadata Extract karo (Purana logic reuse karo)
+    # Socho humne repo scan karke 'context' nikal liya hai
+    context = "Detected: FastAPI Backend, Next.js Frontend, MySQL Database. Auth flow via GitHub OAuth." 
+
+    # 2. Gemini Prompt for Mermaid
+    prompt = f"""
+    Analyze this project context and generate a professional system architecture diagram 
+    using Mermaid.js 'graph TD' syntax. 
+    Focus on: 
+    - Data flow between Frontend, Backend, and Database.
+    - Major modules/services.
+    Output ONLY the Mermaid code block. No explanations.
+    Context: {context}
+    """
+
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    response = model.generate_content(prompt)
+    
+    # Clean output: Remove markdown code fences if Gemini adds them
+    mermaid_code = response.text.replace("```mermaid", "").replace("```", "").strip()
+
+    return {
+        "status": "success",
+        "mermaid_code": mermaid_code
+    }
+
 
 @app.post("/generate-readme")
 async def generate_readme(request: RepoRequest):

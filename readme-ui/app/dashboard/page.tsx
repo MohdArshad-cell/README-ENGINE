@@ -57,25 +57,33 @@ export default function Dashboard() {
 
   // 📝 2. CORE LOGIC
   const handleGenerate = async () => {
-    if (!url) return;
-    setLoading(true);
-    const genToast = toast.loading("AI Analyzing Repository...");
-    try {
-      const res = await fetch(`${BACKEND_URL}/generate-readme`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const data = await res.json();
+  if (!url) return;
+  setLoading(true);
+  const genToast = toast.loading("AI Analyzing Repository DNA...");
+  try {
+    const res = await fetch(`${BACKEND_URL}/generate-readme`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    
+    const data = await res.json();
+    console.log("Backend Response:", data); // 👈 Debugging ke liye ye line dalo
+
+    // 🔥 FIX: Ensure karo ki hum sirf string nikaal rahe hain
+    if (data && data.markdown) {
       setResult(data);
-      setEditableMarkdown(data.markdown);
-      toast.success("README Synthesized", { id: genToast });
-    } catch (err) {
-      toast.error("Handshake Timeout. Backend offline.", { id: genToast });
-    } finally {
-      setLoading(false);
+      setEditableMarkdown(typeof data.markdown === 'string' ? data.markdown : JSON.stringify(data.markdown));
+      toast.success("Documentation Synthesized!", { id: genToast });
+    } else {
+      throw new Error("Invalid response format");
     }
-  };
+  } catch (err) {
+    toast.error("System Unreachable or Invalid Data.", { id: genToast });
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handlePush = async () => {
     const token = localStorage.getItem("gh_token");
@@ -97,6 +105,29 @@ export default function Dashboard() {
       setPushing(false);
     }
   };
+
+
+  // dashboard/page.tsx mein handleGenerate ko update karo ya naya function banao
+const [mermaidCode, setMermaidCode] = useState("");
+
+const generateDiagram = async () => {
+    setLoading(true);
+    const dToast = toast.loading("Synthesizing System Architecture...");
+    try {
+      const res = await fetch(`${BACKEND_URL}/generate-diagram`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      setMermaidCode(data.mermaid_code);
+      toast.success("Architecture Map Ready!", { id: dToast });
+    } catch (err) {
+      toast.error("Neural Mapping Failed.", { id: dToast });
+    } finally {
+      setLoading(false);
+    }
+};
 
   const logout = () => {
     localStorage.removeItem("gh_token");
@@ -179,11 +210,15 @@ export default function Dashboard() {
               </div>
 
               {/* RIGHT: Live Preview */}
-              <div className="bg-[#0d1117] border border-white/5 rounded-[2rem] p-10 overflow-y-auto custom-scrollbar">
-                <article className="prose prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{editableMarkdown}</ReactMarkdown>
-                </article>
-              </div>
+              {/* RIGHT: LIVE RENDER */}
+<div className="bg-[#0d1117] border border-white/5 rounded-[2.5rem] p-12 overflow-y-auto custom-scrollbar relative shadow-2xl">
+  <article className="prose prose-invert max-w-none">
+    {/* 🔥 FIX: Ensure editableMarkdown is ALWAYS a string */}
+    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+      {String(editableMarkdown || "")} 
+    </ReactMarkdown>
+  </article>
+</div>
             </motion.div>
           )}
         </div>
