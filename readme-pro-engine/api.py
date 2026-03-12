@@ -111,7 +111,6 @@ async def generate_diagram(request: dict):
     if not repo_url:
         raise HTTPException(status_code=400, detail="Repo URL missing")
 
-    # Step: Scan repo contextually for dynamic diagrams
     git_mgr = GitManager()
     target_path = git_mgr.clone_repo(repo_url)
     
@@ -121,20 +120,47 @@ async def generate_diagram(request: dict):
         analyzer = ProjectAnalyzer(target_path)
         report = analyzer.analyze(data)
 
-        context = f"Tech Stack: {report.get('primary_stack')}, Frameworks: {report.get('detected_frameworks')}, Files: {len(data.get('code_files', []))}"
+        # 🚀 IMPROVEMENT 1: Richer Context (Files aur Structure bhi do)
+        full_context = {
+            "stack": report.get("primary_stack"),
+            "frameworks": report.get("detected_frameworks"),
+            "dependencies": report.get("key_dependencies")[:15], # Top 15 dependencies
+            "structure": list(data.get("structure", []))[:30]    # Top 30 file paths
+        }
 
+        # 🚀 IMPROVEMENT 2: Advanced Prompt with Mermaid Styling
         prompt = f"""
-        Analyze this project context and generate a professional system architecture diagram 
-        using Mermaid.js 'graph TD' syntax. 
-        Focus on: 
-        - Data flow between Frontend, Backend, and Database.
-        - Major modules/services detected in this stack.
-        - Output ONLY the Mermaid code block. No explanations.
-        Context: {context}
+        You are a System Architect. Create a HIGHLY VISUAL and STYLIZED system architecture diagram using Mermaid.js 'graph TD'.
+        
+        PROJECT DATA:
+        {full_context}
+
+        DIAGRAM RULES:
+        1. Use SUBGRAPHS to group components (e.g., subgraph "Client Side", "Server Side", "Database").
+        2. Use stylized nodes:
+           - Frontend components should be in rounded [NodeName]
+           - Databases in cylinder [(Database)]
+           - External APIs in rhomboid {{API}}
+        3. ADD STYLING:
+           - Define 'classDef' for different layers (e.g., classDef frontend fill:#3b82f6,color:#fff; classDef backend fill:#10b981,color:#fff).
+           - Apply these classes to nodes.
+        4. Focus on actual data flow based on the file structure (e.g., if 'routes/' exists, show it connecting to 'controllers/').
+        5. IMPORTANT: Node labels MUST NOT contain parentheses () or special characters unless they are wrapped in double quotes. 
+           Example: A["Frontend (React/Next.js)"] instead of A[Frontend (React/Next.js)].
+           ...
+        Output ONLY the Mermaid code block. No explanations.
         """
 
         response = model.generate_content(prompt)
         mermaid_code = response.text.replace("```mermaid", "").replace("```", "").strip()
+        
+        import re
+        
+        # Sabse pehle, agar AI ne labels mein () choda hai bina quotes ke, usey clean karo
+        # Example: change A[Text (Info)] to A["Text Info"]
+        mermaid_code = re.sub(r'\[(.*?)\]', lambda m: f'["{m.group(1).replace("(", " ").replace(")", " ")}"]', mermaid_code)
+        mermaid_code = re.sub(r'\{(.*?)\}', lambda m: f'{{"{m.group(1).replace("(", " ").replace(")", " ")}"}}', mermaid_code)
+        mermaid_code = re.sub(r'\((.*?)\)', lambda m: f'("{m.group(1).replace("(", " ").replace(")", " ")}")', mermaid_code)
 
         return {
             "status": "success",

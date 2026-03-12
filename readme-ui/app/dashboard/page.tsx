@@ -3,14 +3,15 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Loader2, Github, Wand2, Terminal as TerminalIcon, 
-  Cpu, Globe, Folder, FileCode, ChevronRight, Edit3, Eye, FileDown, 
-  Send, ShieldCheck, Activity, Sparkles, LayoutDashboard, Settings, LogOut, Copy, Check , Waypoints
+  Loader2, Github, Terminal as TerminalIcon, 
+  Activity, Sparkles, LayoutDashboard, Settings, LogOut, Copy, Waypoints,
+  ShieldCheck , FileDown
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import toast, { Toaster } from "react-hot-toast";
 import confetti from "canvas-confetti";
+import MermaidRenderer from "@/components/MermaidRenderer"; 
 
 // --- Types ---
 interface ReadmeResult {
@@ -27,6 +28,10 @@ export default function Dashboard() {
   const [result, setResult] = useState<ReadmeResult | null>(null);
   const [editableMarkdown, setEditableMarkdown] = useState("");
   const [isAuthorized, setIsAuthorized] = useState(false);
+  
+  // Mermaid States
+  const [mermaidCode, setMermaidCode] = useState("");
+  const [isDiagramLoading, setIsDiagramLoading] = useState(false);
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -51,40 +56,97 @@ export default function Dashboard() {
           toast.success("GitHub Connection Secure", { id: authToast });
           window.history.replaceState({}, document.title, "/dashboard");
         }
-      });
+      })
+      .catch(() => toast.error("Handshake Failed", { id: authToast }));
     }
   }, [BACKEND_URL]);
 
-  // 📝 2. CORE LOGIC
+  // 📝 2. GENERATE README
   const handleGenerate = async () => {
-  if (!url) return;
-  setLoading(true);
-  const genToast = toast.loading("AI Analyzing Repository DNA...");
-  try {
-    const res = await fetch(`${BACKEND_URL}/generate-readme`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-    
-    const data = await res.json();
-    console.log("Backend Response:", data); // 👈 Debugging ke liye ye line dalo
-
-    // 🔥 FIX: Ensure karo ki hum sirf string nikaal rahe hain
-    if (data && data.markdown) {
-      setResult(data);
-      setEditableMarkdown(typeof data.markdown === 'string' ? data.markdown : JSON.stringify(data.markdown));
-      toast.success("Documentation Synthesized!", { id: genToast });
-    } else {
-      throw new Error("Invalid response format");
+    if (!url) return;
+    setLoading(true);
+    setMermaidCode(""); // Reset old diagram
+    const genToast = toast.loading("AI Analyzing Repository DNA...");
+    try {
+      const res = await fetch(`${BACKEND_URL}/generate-readme`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      
+      const data = await res.json();
+      if (data && data.markdown) {
+        setResult(data);
+        setEditableMarkdown(typeof data.markdown === 'string' ? data.markdown : JSON.stringify(data.markdown));
+        toast.success("Documentation Synthesized!", { id: genToast });
+      } else {
+        throw new Error("Invalid response format");
+      }
+    } catch (err) {
+      toast.error("Generation Failed.", { id: genToast });
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    toast.error("System Unreachable or Invalid Data.", { id: genToast });
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
+  // 📊 3. FETCH MERMAID DIAGRAM
+  const fetchDiagram = async () => {
+    if (!url) return;
+    setIsDiagramLoading(true);
+    const dToast = toast.loading("Synthesizing Architecture...");
+    try {
+      const res = await fetch(`${BACKEND_URL}/generate-diagram`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url }),
+      });
+      const data = await res.json();
+      if (data.mermaid_code) {
+        setMermaidCode(data.mermaid_code);
+        toast.success("Architecture Mapped!", { id: dToast });
+      }
+    } catch (err) {
+      toast.error("Mapping Failed.", { id: dToast });
+    } finally {
+      setIsDiagramLoading(false);
+    }
+  };
+  const downloadDiagram = () => {
+  const svgElement = document.querySelector("#mermaid-diagram-container svg") as SVGElement;
+  if (!svgElement) {
+    toast.error("No diagram found to download");
+    return;
+  }
+
+  const svgData = new XMLSerializer().serializeToString(svgElement);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  const img = new Image();
+
+  // SVG to Base64
+  const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(svgBlob);
+
+  img.onload = () => {
+    // Quality check: Scale up for high-res image
+    canvas.width = img.width * 2; 
+    canvas.height = img.height * 2;
+    ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+    
+    const pngUrl = canvas.toDataURL("image/png");
+    const downloadLink = document.createElement("a");
+    downloadLink.href = pngUrl;
+    downloadLink.download = `architecture-diagram-${Date.now()}.png`;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    URL.revokeObjectURL(url);
+    toast.success("Image Downloaded!");
+  };
+
+  img.src = url;
+};
+  // 📤 4. GITHUB PUSH
   const handlePush = async () => {
     const token = localStorage.getItem("gh_token");
     setPushing(true);
@@ -106,29 +168,6 @@ export default function Dashboard() {
     }
   };
 
-
-  // dashboard/page.tsx mein handleGenerate ko update karo ya naya function banao
-const [mermaidCode, setMermaidCode] = useState("");
-
-const generateDiagram = async () => {
-    setLoading(true);
-    const dToast = toast.loading("Synthesizing System Architecture...");
-    try {
-      const res = await fetch(`${BACKEND_URL}/generate-diagram`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const data = await res.json();
-      setMermaidCode(data.mermaid_code);
-      toast.success("Architecture Map Ready!", { id: dToast });
-    } catch (err) {
-      toast.error("Neural Mapping Failed.", { id: dToast });
-    } finally {
-      setLoading(false);
-    }
-};
-
   const logout = () => {
     localStorage.removeItem("gh_token");
     window.location.href = "/";
@@ -138,7 +177,7 @@ const generateDiagram = async () => {
     <div className="min-h-screen bg-[#020203] text-zinc-100 flex font-sans">
       <Toaster position="bottom-right" />
 
-      {/* 🛠️ SIDEBAR: THE CONTROL PANEL */}
+      {/* 🛠️ SIDEBAR */}
       <aside className="w-72 border-r border-white/5 bg-[#050505] p-8 flex flex-col justify-between hidden md:flex">
         <div className="space-y-12">
           <div className="flex items-center gap-3">
@@ -150,8 +189,16 @@ const generateDiagram = async () => {
 
           <nav className="space-y-2">
             <SidebarLink icon={<LayoutDashboard />} label="README Gen" active={activeTab === "readme"} onClick={() => setActiveTab("readme")} />
-            <SidebarLink icon={<Waypoints />} label="Mermaid Docs" active={activeTab === "mermaid"} onClick={() => toast.error("Coming in v2.1!")} />
-            <SidebarLink icon={<ShieldCheck />} label="Compliance" active={activeTab === "compliance"} onClick={() => toast.error("Coming in v2.2!")} />
+            <SidebarLink 
+              icon={<Waypoints />} 
+              label="Mermaid Docs" 
+              active={activeTab === "mermaid"} 
+              onClick={() => {
+                setActiveTab("mermaid");
+                if (result && !mermaidCode) fetchDiagram();
+              }} 
+            />
+            <SidebarLink icon={<ShieldCheck />} label="Compliance" active={activeTab === "compliance"} onClick={() => toast.error("v2.2 Restricted")} />
             <SidebarLink icon={<Settings />} label="Settings" active={activeTab === "settings"} onClick={() => {}} />
           </nav>
         </div>
@@ -166,7 +213,7 @@ const generateDiagram = async () => {
         <header className="flex justify-between items-center mb-12">
           <div>
             <h1 className="text-3xl font-black uppercase tracking-tight">System_Dashboard</h1>
-            <p className="text-zinc-600 text-xs font-mono tracking-widest mt-1">Status: {isAuthorized ? "AUTHORIZED_GITHUB_SESSION" : "ANONYMOUS_ACCESS"}</p>
+            <p className="text-zinc-600 text-xs font-mono tracking-widest mt-1">Status: {isAuthorized ? "AUTHORIZED_SESSION" : "ANONYMOUS_ACCESS"}</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="px-4 py-2 rounded-xl bg-green-500/5 border border-green-500/10 text-[10px] font-black uppercase text-green-500 flex items-center gap-2">
@@ -175,7 +222,7 @@ const generateDiagram = async () => {
           </div>
         </header>
 
-        {/* 🔮 MODULE: README GENERATOR (PURANA LOGIC IN NEW SKIN) */}
+        {/* 🔮 URL INPUT */}
         <div className="space-y-8">
           <section className="bg-zinc-900/30 border border-white/5 p-8 rounded-[2.5rem] backdrop-blur-xl">
             <div className="flex gap-4">
@@ -195,30 +242,102 @@ const generateDiagram = async () => {
             </div>
           </section>
 
-          {/* Render Result Logic yahan dashboard ke main area mein aayega */}
+          {/* 🚀 DYNAMIC CONTENT AREA */}
           {result && (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[700px]">
-              {/* LEFT: Editor */}
-              <div className="bg-[#050505] border border-white/5 rounded-[2rem] flex flex-col overflow-hidden shadow-2xl">
-                 <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-blue-500">Editor_v2</span>
-                    <button onClick={handlePush} disabled={pushing} className="bg-green-600/10 text-green-500 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-green-500/20 hover:bg-green-600 hover:text-white transition-all">
-                      {pushing ? "Pushing..." : "Direct Push"}
-                    </button>
-                 </div>
-                 <textarea value={editableMarkdown} onChange={(e) => setEditableMarkdown(e.target.value)} className="flex-1 p-8 bg-transparent text-zinc-400 font-mono text-xs leading-relaxed outline-none resize-none" />
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+              
+              {/* TABS */}
+              <div className="flex gap-6 border-b border-white/5 pb-4">
+                <button 
+                  onClick={() => setActiveTab("readme")}
+                  className={`text-[10px] font-black uppercase tracking-widest pb-2 transition-all ${activeTab === "readme" ? "border-b-2 border-blue-500 text-blue-500" : "text-zinc-500 hover:text-zinc-300"}`}
+                >
+                  README_ENGINE
+                </button>
+                <button 
+                  onClick={() => {
+                    setActiveTab("mermaid");
+                    if (!mermaidCode) fetchDiagram();
+                  }}
+                  className={`text-[10px] font-black uppercase tracking-widest pb-2 transition-all ${activeTab === "mermaid" ? "border-b-2 border-blue-500 text-blue-500" : "text-zinc-500 hover:text-zinc-300"}`}
+                >
+                  SYSTEM_ARCHITECTURE
+                </button>
               </div>
 
-              {/* RIGHT: Live Preview */}
-              {/* RIGHT: LIVE RENDER */}
-<div className="bg-[#0d1117] border border-white/5 rounded-[2.5rem] p-12 overflow-y-auto custom-scrollbar relative shadow-2xl">
-  <article className="prose prose-invert max-w-none">
-    {/* 🔥 FIX: Ensure editableMarkdown is ALWAYS a string */}
-    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-      {String(editableMarkdown || "")} 
-    </ReactMarkdown>
-  </article>
-</div>
+              <AnimatePresence mode="wait">
+  {activeTab === "readme" ? (
+    // 📝 MODE 1: README EDITOR & PREVIEW
+    <motion.div key="readme" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[700px]">
+      {/* Editor */}
+      <div className="bg-[#050505] border border-white/5 rounded-[2rem] flex flex-col overflow-hidden">
+        <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-black/50">
+          <span className="text-[10px] font-black uppercase tracking-widest text-blue-500">Editor_v2</span>
+          <button onClick={handlePush} disabled={pushing} className="bg-green-600/10 text-green-500 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-green-500/20 hover:bg-green-600 hover:text-white transition-all">
+            {pushing ? "Pushing..." : "Direct Push"}
+          </button>
+        </div>
+        <textarea value={editableMarkdown} onChange={(e) => setEditableMarkdown(e.target.value)} className="flex-1 p-8 bg-transparent text-zinc-400 font-mono text-xs leading-relaxed outline-none resize-none custom-scrollbar" />
+      </div>
+
+      {/* Preview */}
+      <div className="bg-[#0d1117] border border-white/5 rounded-[2.5rem] p-12 overflow-y-auto custom-scrollbar relative">
+        <article className="prose prose-invert max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {String(editableMarkdown || "")} 
+          </ReactMarkdown>
+        </article>
+      </div>
+    </motion.div>
+  ) : (
+    // 📊 MODE 2: MERMAID ARCHITECTURE VISUALIZER
+    <motion.div key="mermaid" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="bg-[#050505] border border-white/5 rounded-[2.5rem] p-12 min-h-[600px] flex flex-col items-center justify-center relative">
+      {isDiagramLoading ? (
+        <div className="flex flex-col items-center gap-6">
+          <Loader2 className="w-16 h-16 text-blue-500 animate-spin" />
+          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-zinc-600 animate-pulse">Mapping_Infrastructure...</p>
+        </div>
+      ) : mermaidCode ? (
+        // ✨ MERMAID OUTPUT CONTAINER
+        <div className="w-full h-full flex flex-col items-center">
+          <div className="w-full flex justify-between items-center mb-8">
+            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Live_Architecture_Graph</span>
+            <div className="flex gap-3">
+              {/* Copy Code Button */}
+              <button 
+                onClick={() => { navigator.clipboard.writeText(mermaidCode); toast.success("Code Copied!"); }} 
+                className="p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-all text-zinc-400 hover:text-white"
+                title="Copy Mermaid Code"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+              
+              {/* 📥 DOWNLOAD BUTTON */}
+              <button 
+                onClick={downloadDiagram}
+                className="p-3 bg-blue-600/20 rounded-xl hover:bg-blue-600/40 border border-blue-500/30 transition-all text-blue-400 hover:text-white flex items-center gap-2"
+                title="Download as PNG"
+              >
+                <FileDown className="w-4 h-4" />
+                <span className="text-[9px] font-black uppercase tracking-wider">Download_PNG</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 🎨 ARCHITECTURE RENDERER */}
+          <div className="w-full bg-[#0d1117]/50 rounded-3xl border border-white/5 p-8">
+            <MermaidRenderer chart={mermaidCode} />
+          </div>
+        </div>
+      ) : (
+        // INITIAL STATE
+        <button onClick={fetchDiagram} className="bg-blue-600 px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px]">
+          Initialize_Scan
+        </button>
+      )}
+    </motion.div>
+  )}
+</AnimatePresence>
             </motion.div>
           )}
         </div>
@@ -227,8 +346,8 @@ const generateDiagram = async () => {
   );
 }
 
+// --- Helper Component ---
 function SidebarLink({ icon, label, active, onClick }: { 
-  // ✅ Generic dalo jo bataye ki is element mein className ho sakti hai
   icon: React.ReactElement<{ className?: string }>, 
   label: string, 
   active: boolean, 
@@ -243,7 +362,6 @@ function SidebarLink({ icon, label, active, onClick }: {
           : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
       }`}
     >
-      {/* Ab TS ko pata hai ki 'className' valid hai */}
       {React.cloneElement(icon, { className: "w-5 h-5" })}
       <span className="text-[10px] font-black uppercase tracking-widest">{label}</span>
     </button>
