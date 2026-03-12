@@ -156,29 +156,43 @@ async def generate_diagram(request: dict):
         response = model.generate_content(prompt)
         mermaid_code = response.text.replace("```mermaid", "").replace("```", "").strip()
 
-        # 🚀 THE "V5 UNIVERSAL FLATTENER"
+        # 🚀 THE "V6 NUCLEAR SANITIZER" - No more syntax bullshit
         import re
 
-        # A. Fix Labeled Arrows (A --> Text --> B to A -->|Text| B)
+        # Step 1: Subgraph titles fix (Strip everything except Alphanumeric)
+        # subgraph "Client Side (""Browser"")" -> subgraph "Client Side Browser"
+        def clean_subgraph(match):
+            title = match.group(1)
+            clean_title = re.sub(r'[^a-zA-Z0-9 ]', ' ', title).strip()
+            return f'subgraph "{clean_title}"'
+        
+        mermaid_code = re.sub(r'subgraph\s+"?(.*?)"?(?=\n|$)', clean_subgraph, mermaid_code)
+
+        # Step 2: Fix Labeled Arrows (A --> Text --> B to A -->|Text| B)
         mermaid_code = re.sub(r'-->\s*(.*?)\s*-->', r'-->|\1|', mermaid_code)
 
-        # B. Clean Subgraph Titles (Hatao har tarah ke nested quotes aur brackets)
-        mermaid_code = re.sub(r'subgraph\s+"?(.*?)"?', 
-            lambda m: f'subgraph "{m.group(1).replace("(", " ").replace(")", " ").replace('"', '').strip()}"', 
-            mermaid_code)
-
-        # C. Flatten Node Labels (Extract -> Strip -> Wrap in single quotes)
-        def flatten_label(match):
-            b_open = match.group(1)
-            # Saara kachra saaf karo: quotes, brackets, aur extra spaces
-            content = match.group(2).replace('"', '').replace('(', ' ').replace(')', ' ').strip()
+        # Step 3: Node Label Flattener (The most aggressive part)
+        def ultimate_label_fix(match):
+            node_id = match.group(1)
+            bracket_open = match.group(2)
+            content = match.group(3)
+            bracket_close = match.group(4)
+            
+            # Remove ALL quotes, parentheses, and brackets from inside the label
+            clean_content = re.sub(r'[^a-zA-Z0-9 ]', ' ', content).strip()
             # Multiple spaces ko single space mein badlo
-            clean_content = ' '.join(content.split())
-            b_close = match.group(3)
-            return f'{b_open}"{clean_content}"{b_close}'
+            clean_content = ' '.join(clean_content.split())
+            
+            # Re-wrap in a clean, single set of quotes
+            return f'{node_id}{bracket_open}"{clean_content}"{bracket_close}'
 
-        # Target [label], (label), {label}
-        mermaid_code = re.sub(r'(\[|\(|\{)(.*?)(\]|\)|\})', flatten_label, mermaid_code)
+        # Target: NodeID[Label], NodeID(Label), NodeID{Label}
+        mermaid_code = re.sub(r'(\w+)(\[|\(|\{)(.*?)(\]|\)|\})', ultimate_label_fix, mermaid_code)
+
+        # Step 4: Final Safety Net - remove any double-double quotes that might have survived
+        mermaid_code = mermaid_code.replace('""', '"')
+        # Fix broken arrows if Gemini missed a '-'
+        mermaid_code = re.sub(r' --(?![->])', ' --> ', mermaid_code)
 
         return {
             "status": "success",
