@@ -153,14 +153,22 @@ async def generate_diagram(request: dict):
 
         response = model.generate_content(prompt)
         mermaid_code = response.text.replace("```mermaid", "").replace("```", "").strip()
-        
+
+        # 🚀 THE "ZERO-TOLERANCE" CLEANER (V3)
         import re
         
-        # Sabse pehle, agar AI ne labels mein () choda hai bina quotes ke, usey clean karo
-        # Example: change A[Text (Info)] to A["Text Info"]
-        mermaid_code = re.sub(r'\[(.*?)\]', lambda m: f'["{m.group(1).replace("(", " ").replace(")", " ")}"]', mermaid_code)
-        mermaid_code = re.sub(r'\{(.*?)\}', lambda m: f'{{"{m.group(1).replace("(", " ").replace(")", " ")}"}}', mermaid_code)
-        mermaid_code = re.sub(r'\((.*?)\)', lambda m: f'("{m.group(1).replace("(", " ").replace(")", " ")}")', mermaid_code)
+        # A. Sabse pehle SUBGRAPH titles ko clean karo
+        # subgraph "Title (Info)" -> subgraph "Title  Info "
+        mermaid_code = re.sub(r'subgraph "(.*?)"', lambda m: f'subgraph "{m.group(1).replace("(", " ").replace(")", " ").replace('"', '')}"', mermaid_code)
+        
+        # B. Phir Node Labels ko clean karo (Jo pehle kiya tha)
+        def quote_labels(match):
+            bracket_open = match.group(1)
+            content = match.group(2).replace('(', ' ').replace(')', ' ').replace('"', '')
+            bracket_close = match.group(3)
+            return f'{bracket_open}"{content}"{bracket_close}'
+
+        mermaid_code = re.sub(r'(\[|\(|\{)(.*?)(\]|\)|\})', quote_labels, mermaid_code)
 
         return {
             "status": "success",
