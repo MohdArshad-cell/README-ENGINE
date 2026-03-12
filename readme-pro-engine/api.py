@@ -156,24 +156,29 @@ async def generate_diagram(request: dict):
         response = model.generate_content(prompt)
         mermaid_code = response.text.replace("```mermaid", "").replace("```", "").strip()
 
-        # 🚀 THE "ZERO-TOLERANCE" CLEANER (V4)
+        # 🚀 THE "V5 UNIVERSAL FLATTENER"
         import re
 
-        # A. Sabse pehle "Broken Labeled Arrows" ko theek karo
-        # Convert: A --> Text --> B  TO  A -->|Text| B
+        # A. Fix Labeled Arrows (A --> Text --> B to A -->|Text| B)
         mermaid_code = re.sub(r'-->\s*(.*?)\s*-->', r'-->|\1|', mermaid_code)
-        
-        # B. Clean Subgraph Titles (Jo pehle kiya tha)
-        mermaid_code = re.sub(r'subgraph "(.*?)"', lambda m: f'subgraph "{m.group(1).replace("(", " ").replace(")", " ").replace('"', '')}"', mermaid_code)
-        
-        # C. Clean Node Labels aur force Quotes
-        def quote_labels(match):
-            bracket_open = match.group(1)
-            content = match.group(2).replace('(', ' ').replace(')', ' ').replace('"', '')
-            bracket_close = match.group(3)
-            return f'{bracket_open}"{content}"{bracket_close}'
 
-        mermaid_code = re.sub(r'(\[|\(|\{)(.*?)(\]|\)|\})', quote_labels, mermaid_code)
+        # B. Clean Subgraph Titles (Hatao har tarah ke nested quotes aur brackets)
+        mermaid_code = re.sub(r'subgraph\s+"?(.*?)"?', 
+            lambda m: f'subgraph "{m.group(1).replace("(", " ").replace(")", " ").replace('"', '').strip()}"', 
+            mermaid_code)
+
+        # C. Flatten Node Labels (Extract -> Strip -> Wrap in single quotes)
+        def flatten_label(match):
+            b_open = match.group(1)
+            # Saara kachra saaf karo: quotes, brackets, aur extra spaces
+            content = match.group(2).replace('"', '').replace('(', ' ').replace(')', ' ').strip()
+            # Multiple spaces ko single space mein badlo
+            clean_content = ' '.join(content.split())
+            b_close = match.group(3)
+            return f'{b_open}"{clean_content}"{b_close}'
+
+        # Target [label], (label), {label}
+        mermaid_code = re.sub(r'(\[|\(|\{)(.*?)(\]|\)|\})', flatten_label, mermaid_code)
 
         return {
             "status": "success",

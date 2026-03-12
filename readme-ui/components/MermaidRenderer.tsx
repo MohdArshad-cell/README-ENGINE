@@ -23,13 +23,18 @@ export default function MermaidRenderer({ chart }: { chart: string }) {
       // 🚀 THE FRONTEND GUARD: Render hone se pehle cleaning
       // 1. Labels ke andar se dangerous () hatao aur unhe quotes "" mein wrap karo
       // 2. Broken arrows '--' ko '-->' mein badlo
-      const cleanChart = chart
-        .replace(/\[(.*?)\]/g, (m, g) => `["${g.replace(/[()]/g, " ")}"]`) 
-        .replace(/\{(.*?)\}/g, (m, g) => `{"${g.replace(/[()]/g, " ")}"}`)
-        .replace(/\((.*?)\)/g, (m, g) => `("${g.replace(/[()]/g, " ")}")`)
-        .replace(/ --\s/g, " --> "); 
+      // MermaidRenderer.tsx ke useEffect ke andar cleanChart logic ko badlo:
 
-      // Unique ID for every render
+const cleanChart = chart
+  // 1. Fix Labeled Arrows
+  .replace(/-->\s*(.*?)\s*-->/g, "-->|$1| ")
+  // 2. Flatten Subgraph Titles
+  .replace(/subgraph\s+"?(.*?)"?/g, (m, g) => `subgraph "${g.replace(/[()"]/g, "").trim()}"`)
+  // 3. Universal Node Label Flattener
+  .replace(/(\[|\(|\{)(.*?)(\]|\)|\})/g, (m, bO, content, bC) => {
+    const cleanContent = content.replace(/[()"]/g, "").trim().replace(/\s+/g, " ");
+    return `${bO}"${cleanContent}"${bC}`;
+  });
       const id = `mermaid-svg-${Math.random().toString(36).substr(2, 9)}`;
       
       try {
