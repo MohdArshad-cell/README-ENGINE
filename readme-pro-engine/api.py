@@ -1,38 +1,46 @@
 import os
-import httpx # Isse API calls karenge
-import base64 # GitHub content encode karne ke liye
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
+import httpx
+import base64
+import uvicorn
 import google.generativeai as genai
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# Existing Engine Imports
+# 🛠️ Core Engine Imports
 from core.git_manager import GitManager
 from core.scanner import RepositoryScanner
 from core.analyzer import ProjectAnalyzer
 from core.report_builder import ReportBuilder
 
+# .env file load karo
 load_dotenv()
 
-app = FastAPI()
+app = FastAPI(title="README_ENGINE_FINAL_V2", version="2.0")
 
-# 🌐 CORS: Iske bina Next.js API ko call nahi kar payega
+# 🌐 CORS: Iske bina Next.js (Port 3000) API (Port 8000) ko call nahi kar payega
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 🧠 Gemini Setup
+# 🧠 Gemini & GitHub Config
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-2.5-flash')
+model = genai.GenerativeModel('gemini-2.5-flash-lite') # Recommended for speed/accuracy balance
+
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+
 class RepoRequest(BaseModel):
     url: str
 
+# ---------------------------------------------------------
+# 🔑 1. GITHUB OAUTH TOKEN EXCHANGE
+# ---------------------------------------------------------
 @app.post("/github/token")
 async def get_github_token(request: dict):
     code = request.get("code")
@@ -48,14 +56,16 @@ async def get_github_token(request: dict):
         )
         return res.json()
 
-# 2. Direct Push logic
+# ---------------------------------------------------------
+# 📤 2. DIRECT PUSH TO GITHUB
+# ---------------------------------------------------------
 @app.post("/github/push")
 async def push_to_github(request: dict):
     token = request.get("token")
     repo_url = request.get("repo_url") 
     content = request.get("content")
     
-    # URL se owner aur repo nikalna (Logic: https://github.com/owner/repo)
+    # URL parsing: https://github.com/owner/repo
     parts = repo_url.rstrip("/").split("/")
     owner, repo = parts[-2], parts[-1]
     
@@ -65,17 +75,19 @@ async def push_to_github(request: dict):
     }
 
     async with httpx.AsyncClient() as client:
-        # README dhoondo (SHA nikalne ke liye agar pehle se exist karti hai)
+        # Check if README exists to get SHA
         get_res = await client.get(
             f"https://api.github.com/repos/{owner}/{repo}/contents/README.md",
             headers=headers
         )
         sha = get_res.json().get("sha") if get_res.status_code == 200 else None
 
-        # Update / Create file
+        # Base64 encoding for GitHub API
+        encoded_content = base64.b64encode(content.encode()).decode()
+
         payload = {
-            "message": "🚀 README updated via README ENGINE",
-            "content": base64.b64encode(content.encode()).decode(),
+            "message": "🚀 README updated via README ENGINE V2",
+            "content": encoded_content,
         }
         if sha: payload["sha"] = sha
 
@@ -87,43 +99,53 @@ async def push_to_github(request: dict):
         
         if put_res.status_code in [200, 201]:
             return {"status": "success", "url": put_res.json()["content"]["html_url"]}
-        raise HTTPException(status_code=400, detail="GitHub Push Failed")
-    
+        
+        raise HTTPException(status_code=400, detail=f"GitHub Push Failed: {put_res.text}")
 
-# routes/diagrams.py (Ya direct api.py mein add karo)
+# ---------------------------------------------------------
+# 📊 3. GENERATE MERMAID ARCHITECTURE DIAGRAM
+# ---------------------------------------------------------
 @app.post("/generate-diagram")
 async def generate_diagram(request: dict):
     repo_url = request.get("url")
     if not repo_url:
         raise HTTPException(status_code=400, detail="Repo URL missing")
 
-    # 1. Metadata Extract karo (Purana logic reuse karo)
-    # Socho humne repo scan karke 'context' nikal liya hai
-    context = "Detected: FastAPI Backend, Next.js Frontend, MySQL Database. Auth flow via GitHub OAuth." 
-
-    # 2. Gemini Prompt for Mermaid
-    prompt = f"""
-    Analyze this project context and generate a professional system architecture diagram 
-    using Mermaid.js 'graph TD' syntax. 
-    Focus on: 
-    - Data flow between Frontend, Backend, and Database.
-    - Major modules/services.
-    Output ONLY the Mermaid code block. No explanations.
-    Context: {context}
-    """
-
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    response = model.generate_content(prompt)
+    # Step: Scan repo contextually for dynamic diagrams
+    git_mgr = GitManager()
+    target_path = git_mgr.clone_repo(repo_url)
     
-    # Clean output: Remove markdown code fences if Gemini adds them
-    mermaid_code = response.text.replace("```mermaid", "").replace("```", "").strip()
+    try:
+        scanner = RepositoryScanner(target_path)
+        data = scanner.scan()
+        analyzer = ProjectAnalyzer(target_path)
+        report = analyzer.analyze(data)
 
-    return {
-        "status": "success",
-        "mermaid_code": mermaid_code
-    }
+        context = f"Tech Stack: {report.get('primary_stack')}, Frameworks: {report.get('detected_frameworks')}, Files: {len(data.get('code_files', []))}"
 
+        prompt = f"""
+        Analyze this project context and generate a professional system architecture diagram 
+        using Mermaid.js 'graph TD' syntax. 
+        Focus on: 
+        - Data flow between Frontend, Backend, and Database.
+        - Major modules/services detected in this stack.
+        - Output ONLY the Mermaid code block. No explanations.
+        Context: {context}
+        """
 
+        response = model.generate_content(prompt)
+        mermaid_code = response.text.replace("```mermaid", "").replace("```", "").strip()
+
+        return {
+            "status": "success",
+            "mermaid_code": mermaid_code
+        }
+    finally:
+        git_mgr.cleanup()
+
+# ---------------------------------------------------------
+# 🤖 4. GENERATE AI README (The Main Engine)
+# ---------------------------------------------------------
 @app.post("/generate-readme")
 async def generate_readme(request: RepoRequest):
     git_mgr = GitManager()
