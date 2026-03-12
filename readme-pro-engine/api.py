@@ -151,17 +151,22 @@ async def generate_diagram(request: dict):
         Output ONLY the Mermaid code block. No explanations.
         """
 
+        # generate_diagram function ke andar response cleaning logic mein ye line add karo:
+
         response = model.generate_content(prompt)
         mermaid_code = response.text.replace("```mermaid", "").replace("```", "").strip()
 
-        # 🚀 THE "ZERO-TOLERANCE" CLEANER (V3)
+        # 🚀 THE "ZERO-TOLERANCE" CLEANER (V4)
         import re
+
+        # A. Sabse pehle "Broken Labeled Arrows" ko theek karo
+        # Convert: A --> Text --> B  TO  A -->|Text| B
+        mermaid_code = re.sub(r'-->\s*(.*?)\s*-->', r'-->|\1|', mermaid_code)
         
-        # A. Sabse pehle SUBGRAPH titles ko clean karo
-        # subgraph "Title (Info)" -> subgraph "Title  Info "
+        # B. Clean Subgraph Titles (Jo pehle kiya tha)
         mermaid_code = re.sub(r'subgraph "(.*?)"', lambda m: f'subgraph "{m.group(1).replace("(", " ").replace(")", " ").replace('"', '')}"', mermaid_code)
         
-        # B. Phir Node Labels ko clean karo (Jo pehle kiya tha)
+        # C. Clean Node Labels aur force Quotes
         def quote_labels(match):
             bracket_open = match.group(1)
             content = match.group(2).replace('(', ' ').replace(')', ' ').replace('"', '')
