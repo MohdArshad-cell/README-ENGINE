@@ -129,71 +129,38 @@ async def generate_diagram(request: dict):
 
         # 🎯 PROMPT: Logic clear, constraints tight.
         prompt = f"""
-        Analyze this project and return a JSON object representing the system architecture.
-        STRICT: Return ONLY JSON. No text, no markdown.
-        
-        Format:
-        {{
-          "subgraphs": [
-            {{ "name": "Frontend", "nodes": [ {{"id": "A", "label": "React UI"}}] }},
-            {{ "name": "Backend", "nodes": [ {{"id": "B", "label": "FastAPI"}}] }}
-          ],
-          "connections": [
-            {{ "from": "A", "to": "B", "label": "API Call" }}
-          ]
-        }}
+        Generate a simple Mermaid.js 'graph TD' flowchart for this project.
+        RULES:
+        1. Use only alphanumeric characters and spaces in labels.
+        2. Format: A["Label Text"] --> B["Label Text"]
+        3. No subgraphs, no classDef, no stylized nodes.
+        4. Output ONLY the raw Mermaid code.
         Context: {full_context}
         """
 
         response = model.generate_content(prompt)
-        import json
-        # Cleanup: sometimes AI puts markdown backticks even when told not to
-        json_str = response.text.replace("```json", "").replace("```", "").strip()
-        data = json.loads(json_str)
+        raw_code = response.text.replace("```mermaid", "").replace("```", "").strip()
 
-        # 🏗️ BUILD MERMAID MANUALLY (The "Dictator" Way)
-        # 🏗️ BUILD MERMAID MANUALLY (The "Absolute Dictator" Way)
-        lines = ["graph TD"]
+        # 🚀 BASIC CLEANER: Just ensure quotes are balanced and graph TD is there
+        import re
         
-        # Styles
-        lines.append('classDef frontend fill:#3b82f6,color:#fff,stroke:#1d4ed8,stroke-width:2px;')
-        lines.append('classDef backend fill:#10b981,color:#fff,stroke:#047857,stroke-width:2px;')
-        lines.append('classDef db fill:#f59e0b,color:#fff,stroke:#b45309,stroke-width:2px;')
+        # Ensure it starts with graph TD
+        if not raw_code.startswith("graph TD"):
+            raw_code = "graph TD\n" + raw_code.replace("graph TD", "")
 
-        for sub in data.get("subgraphs", []):
-            safe_sub_name = "".join(filter(str.isalnum, sub["name"]))
-            lines.append(f'  subgraph {safe_sub_name} ["{sub["name"]}"]')
-            for node in sub.get("nodes", []):
-                # Clean label and ID - IDs MUST be alphanumeric
-                safe_id = "".join(filter(str.isalnum, node["id"]))
-                safe_label = "".join(c for c in node["label"] if c.isalnum() or c == ' ')
-                
-                # Style logic
-                style = ":::frontend" if "front" in sub["name"].lower() else ":::backend"
-                if "db" in sub["name"].lower() or "data" in sub["name"].lower():
-                    style = ":::db"
-                
-                lines.append(f'    {safe_id}["{safe_label.strip()}"]{style}')
-            lines.append("  end")
-
-        for conn in data.get("connections", []):
-            # 🚀 FIXED ARROW SYNTAX: Must be -->|Label|
-            from_id = "".join(filter(str.isalnum, conn["from"]))
-            to_id = "".join(filter(str.isalnum, conn["to"]))
-            label = "".join(filter(str.isalnum, conn.get("label", "")))
-            
-            if label:
-                lines.append(f'  {from_id} -->|{label}| {to_id}')
-            else:
-                lines.append(f'  {from_id} --> {to_id}')
+        # Kill any parentheses or slashes that might still leak in
+        raw_code = raw_code.replace("(", " ").replace(")", " ").replace("/", " ")
+        
+        # Simple regex to wrap everything in quotes if AI forgot
+        def simple_fix(match):
+            return f'{match.group(1)}["{match.group(2).strip()}"]'
+        
+        raw_code = re.sub(r'(\w+)\[(.*?)\]', simple_fix, raw_code)
 
         return {
             "status": "success",
-            "mermaid_code": "\n".join(lines)
+            "mermaid_code": raw_code
         }
-    except Exception as e:
-        print(f"Bhai Error: {e}")
-        return {"status": "error", "message": "Logic failed, try again."}
     finally:
         git_mgr.cleanup()
 
