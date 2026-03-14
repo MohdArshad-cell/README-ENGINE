@@ -21,19 +21,22 @@ load_dotenv()
 
 app = FastAPI(title="README_ENGINE_FINAL_V2", version="2.0")
 
-# In api.py
+# api.py mein purane CORSMiddleware ko hata kar ye dalo
+
+
+# Origins ki list
 origins = [
-    "https://readme-engine.vercel.app", # Tera asali frontend domain
-    "http://localhost:3000",            # Local testing ke liye
+    "https://readme-engine.vercel.app",
+    "http://localhost:3000",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,              # Ab '*' ki jagah list use karo
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], # Explicitly add OPTIONS
     allow_headers=["*"],
-    expose_headers=["*"]                # Ye line add karo extra safety ke liye
+    expose_headers=["*"],
 )
 # 🧠 Gemini & GitHub Config
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
