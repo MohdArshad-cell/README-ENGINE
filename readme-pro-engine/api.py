@@ -21,15 +21,20 @@ load_dotenv()
 
 app = FastAPI(title="README_ENGINE_FINAL_V2", version="2.0")
 
-# 🌐 CORS: Iske bina Next.js (Port 3000) API (Port 8000) ko call nahi kar payega
+# In api.py
+origins = [
+    "https://readme-engine.vercel.app", # Tera asali frontend domain
+    "http://localhost:3000",            # Local testing ke liye
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://readme-engine.vercel.app/"], # 🎯 Sirf apna domain
+    allow_origins=origins,              # Ab '*' ki jagah list use karo
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]                # Ye line add karo extra safety ke liye
 )
-
 # 🧠 Gemini & GitHub Config
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel('gemini-2.5-flash-lite') # Recommended for speed/accuracy balance
