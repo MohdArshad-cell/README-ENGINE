@@ -1,4 +1,6 @@
 import os
+import requests
+import time
 import httpx
 import base64
 import uvicorn
@@ -22,7 +24,7 @@ app = FastAPI(title="README_ENGINE_FINAL_V2", version="2.0")
 # 🌐 CORS: Iske bina Next.js (Port 3000) API (Port 8000) ko call nahi kar payega
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["https://readme-engine.vercel.app/"], # 🎯 Sirf apna domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,42 +67,80 @@ async def push_to_github(request: dict):
     repo_url = request.get("repo_url") 
     content = request.get("content")
     
-    # URL parsing: https://github.com/owner/repo
     parts = repo_url.rstrip("/").split("/")
     owner, repo = parts[-2], parts[-1]
-    
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
 
     async with httpx.AsyncClient() as client:
-        # Check if README exists to get SHA
-        get_res = await client.get(
-            f"https://api.github.com/repos/{owner}/{repo}/contents/README.md",
-            headers=headers
-        )
+        get_res = await client.get(f"https://api.github.com/repos/{owner}/{repo}/contents/README.md", headers=headers)
         sha = get_res.json().get("sha") if get_res.status_code == 200 else None
-
-        # Base64 encoding for GitHub API
         encoded_content = base64.b64encode(content.encode()).decode()
 
-        payload = {
-            "message": "🚀 README updated via README ENGINE V2",
-            "content": encoded_content,
-        }
+        payload = {"message": "🚀 README updated via ENGINE_v2", "content": encoded_content}
         if sha: payload["sha"] = sha
 
-        put_res = await client.put(
-            f"https://api.github.com/repos/{owner}/{repo}/contents/README.md",
-            headers=headers,
-            json=payload
-        )
+        put_res = await client.put(f"https://api.github.com/repos/{owner}/{repo}/contents/README.md", headers=headers, json=payload)
+        return {"status": "success", "url": put_res.json().get("content", {}).get("html_url")}
+
+# ---------------------------------------------------------
+# 🌿 3. CREATE PULL REQUEST (Ensure NO Indentation here!)
+# ---------------------------------------------------------
+@app.post("/github/pull-request")
+async def create_pr(request: dict):
+    token = request.get("token")
+    repo_url = request.get("repo_url")
+    content = request.get("content")
+    
+    if not token or not repo_url:
+        raise HTTPException(status_code=400, detail="Missing Token or URL")
+
+    parts = repo_url.rstrip("/").split("/")
+    owner, repo = parts[-2], parts[-1]
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    base_api = f"https://api.github.com/repos/{owner}/{repo}"
+
+    async with httpx.AsyncClient() as client:
+        try:
+            # A. Get Default Branch (main/master)
+            repo_res = await client.get(base_api, headers=headers)
+            main_branch = repo_res.json().get("default_branch", "main")
+            
+            # B. Get main branch SHA
+            ref_res = await client.get(f"{base_api}/git/ref/heads/{main_branch}", headers=headers)
+            main_sha = ref_res.json()["object"]["sha"]
+
+            # C. Create New Branch (Unique name)
+            new_branch = f"ai-update-{int(time.time())}"
+            await client.post(f"{base_api}/git/refs", headers=headers, json={
+                "ref": f"refs/heads/{new_branch}",
+                "sha": main_sha
+            })
+
+            # D. Get README SHA (if exists)
+            readme_res = await client.get(f"{base_api}/contents/README.md?ref={new_branch}", headers=headers)
+            file_sha = readme_res.json().get("sha") if readme_res.status_code == 200 else None
+
+            # E. Commit to New Branch
+            await client.put(f"{base_api}/contents/README.md", headers=headers, json={
+                "message": "docs: AI-generated documentation update",
+                "content": base64.b64encode(content.encode()).decode(),
+                "branch": new_branch,
+                "sha": file_sha
+            })
+
+            # F. Open the Pull Request
+            pr_res = await client.post(f"{base_api}/pulls", headers=headers, json={
+                "title": "📝 AI Documentation Review",
+                "body": "Automated README update and architecture mapping via ENGINE_v2.",
+                "head": new_branch,
+                "base": main_branch
+            })
+            
+            return {"status": "success", "pr_url": pr_res.json().get("html_url")}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
         
-        if put_res.status_code in [200, 201]:
-            return {"status": "success", "url": put_res.json()["content"]["html_url"]}
-        
-        raise HTTPException(status_code=400, detail=f"GitHub Push Failed: {put_res.text}")
+
 
 # ---------------------------------------------------------
 # 📊 3. GENERATE MERMAID ARCHITECTURE DIAGRAM

@@ -25,6 +25,7 @@ export default function Dashboard() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [isPRLoading, setIsPRLoading] = useState(false);
   const [result, setResult] = useState<ReadmeResult | null>(null);
   const [editableMarkdown, setEditableMarkdown] = useState("");
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -65,7 +66,7 @@ export default function Dashboard() {
   const handleGenerate = async () => {
     if (!url) return;
     setLoading(true);
-    setMermaidCode(""); // Reset old diagram
+    setMermaidCode(""); 
     const genToast = toast.loading("AI Analyzing Repository DNA...");
     try {
       const res = await fetch(`${BACKEND_URL}/generate-readme`, {
@@ -111,42 +112,59 @@ export default function Dashboard() {
       setIsDiagramLoading(false);
     }
   };
+
+  // 📥 4. DOWNLOAD DIAGRAM
   const downloadDiagram = () => {
-  const svgElement = document.querySelector("#mermaid-diagram-container svg") as SVGElement;
-  if (!svgElement) {
-    toast.error("No diagram found to download");
-    return;
-  }
+    const svgElement = document.querySelector("#mermaid-diagram-container svg") as SVGElement;
+    if (!svgElement) {
+      toast.error("Diagram source not found!");
+      return;
+    }
 
-  const svgData = new XMLSerializer().serializeToString(svgElement);
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  const img = new Image();
+    const toastId = toast.loading("Processing Security Clearances...");
 
-  // SVG to Base64
-  const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(svgBlob);
+    try {
+      const serializer = new XMLSerializer();
+      let svgData = serializer.serializeToString(svgElement);
+      
+      if (!svgData.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+        svgData = svgData.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+      
+      const base64Data = window.btoa(unescape(encodeURIComponent(svgData)));
+      const img = new Image();
+      const svgRect = svgElement.getBoundingClientRect();
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
 
-  img.onload = () => {
-    // Quality check: Scale up for high-res image
-    canvas.width = img.width * 2; 
-    canvas.height = img.height * 2;
-    ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-    
-    const pngUrl = canvas.toDataURL("image/png");
-    const downloadLink = document.createElement("a");
-    downloadLink.href = pngUrl;
-    downloadLink.download = `architecture-diagram-${Date.now()}.png`;
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
-    document.body.removeChild(downloadLink);
-    URL.revokeObjectURL(url);
-    toast.success("Image Downloaded!");
+      canvas.width = svgRect.width * 2;
+      canvas.height = svgRect.height * 2;
+
+      img.onload = () => {
+        if (ctx) {
+          ctx.fillStyle = "#0d1117"; 
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          
+          try {
+            const pngUrl = canvas.toDataURL("image/png");
+            const downloadLink = document.createElement("a");
+            downloadLink.href = pngUrl;
+            downloadLink.download = `architecture-map-${Date.now()}.png`;
+            downloadLink.click();
+            toast.success("Snapshot Saved!", { id: toastId });
+          } catch (e) {
+            toast.error("Browser security blocked the export.", { id: toastId });
+          }
+        }
+      };
+      img.src = `data:image/svg+xml;base64,${base64Data}`;
+    } catch (err) {
+      toast.error("Serialization failed", { id: toastId });
+    }
   };
 
-  img.src = url;
-};
-  // 📤 4. GITHUB PUSH
+  // 📤 5. GITHUB DIRECT PUSH
   const handlePush = async () => {
     const token = localStorage.getItem("gh_token");
     setPushing(true);
@@ -165,6 +183,33 @@ export default function Dashboard() {
       toast.error("Push Rejected.", { id: pToast });
     } finally {
       setPushing(false);
+    }
+  };
+
+  // 🌿 6. GITHUB PULL REQUEST WORKFLOW
+  const handleCreatePR = async () => {
+    const token = localStorage.getItem("gh_token");
+    setIsPRLoading(true);
+    const prToast = toast.loading("Initiating Pull Request Workflow...");
+    
+    try {
+      const res = await fetch(`${BACKEND_URL}/github/pull-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, repo_url: url, content: editableMarkdown })
+      });
+      
+      const data = await res.json();
+      if (data.status === "success") {
+        toast.success("PR Created Successfully!", { id: prToast });
+        window.open(data.pr_url, "_blank"); 
+      } else {
+        throw new Error(data.message);
+      }
+    } catch (err) {
+      toast.error("PR Failed. Check permissions.", { id: prToast });
+    } finally {
+      setIsPRLoading(false);
     }
   };
 
@@ -266,78 +311,89 @@ export default function Dashboard() {
               </div>
 
               <AnimatePresence mode="wait">
-  {activeTab === "readme" ? (
-    // 📝 MODE 1: README EDITOR & PREVIEW
-    <motion.div key="readme" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[700px]">
-      {/* Editor */}
-      <div className="bg-[#050505] border border-white/5 rounded-[2rem] flex flex-col overflow-hidden">
-        <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-black/50">
-          <span className="text-[10px] font-black uppercase tracking-widest text-blue-500">Editor_v2</span>
-          <button onClick={handlePush} disabled={pushing} className="bg-green-600/10 text-green-500 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-green-500/20 hover:bg-green-600 hover:text-white transition-all">
-            {pushing ? "Pushing..." : "Direct Push"}
-          </button>
-        </div>
-        <textarea value={editableMarkdown} onChange={(e) => setEditableMarkdown(e.target.value)} className="flex-1 p-8 bg-transparent text-zinc-400 font-mono text-xs leading-relaxed outline-none resize-none custom-scrollbar" />
-      </div>
+                {activeTab === "readme" ? (
+                  <motion.div key="readme" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[700px]">
+                    
+                    {/* Editor Side */}
+                    <div className="bg-[#050505] border border-white/5 rounded-[2rem] flex flex-col overflow-hidden">
+                      <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-black/50">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-blue-500">Editor_v2</span>
+                        <div className="flex gap-2">
+                          {/* Pull Request Button */}
+                          <button 
+                            onClick={handleCreatePR} 
+                            disabled={isPRLoading} 
+                            className="bg-blue-600/10 text-blue-400 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-blue-500/20 hover:bg-blue-600 hover:text-white transition-all disabled:opacity-50"
+                          >
+                            {isPRLoading ? "Opening PR..." : "Create Pull Request"}
+                          </button>
+                          {/* Direct Push Button */}
+                          <button 
+                            onClick={handlePush} 
+                            disabled={pushing} 
+                            className="bg-green-600/10 text-green-500 px-4 py-2 rounded-xl text-[9px] font-black uppercase border border-green-500/20 hover:bg-green-600 hover:text-white transition-all disabled:opacity-50"
+                          >
+                            {pushing ? "Pushing..." : "Direct Push"}
+                          </button>
+                        </div>
+                      </div>
+                      <textarea value={editableMarkdown} onChange={(e) => setEditableMarkdown(e.target.value)} className="flex-1 p-8 bg-transparent text-zinc-400 font-mono text-xs leading-relaxed outline-none resize-none custom-scrollbar" />
+                    </div>
 
-      {/* Preview */}
-      <div className="bg-[#0d1117] border border-white/5 rounded-[2.5rem] p-12 overflow-y-auto custom-scrollbar relative">
-        <article className="prose prose-invert max-w-none">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {String(editableMarkdown || "")} 
-          </ReactMarkdown>
-        </article>
-      </div>
-    </motion.div>
-  ) : (
-    // 📊 MODE 2: MERMAID ARCHITECTURE VISUALIZER
-    <motion.div key="mermaid" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="bg-[#050505] border border-white/5 rounded-[2.5rem] p-12 min-h-[600px] flex flex-col items-center justify-center relative">
-      {isDiagramLoading ? (
-        <div className="flex flex-col items-center gap-6">
-          <Loader2 className="w-16 h-16 text-blue-500 animate-spin" />
-          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-zinc-600 animate-pulse">Mapping_Infrastructure...</p>
-        </div>
-      ) : mermaidCode ? (
-        // ✨ MERMAID OUTPUT CONTAINER
-        <div className="w-full h-full flex flex-col items-center">
-          <div className="w-full flex justify-between items-center mb-8">
-            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Live_Architecture_Graph</span>
-            <div className="flex gap-3">
-              {/* Copy Code Button */}
-              <button 
-                onClick={() => { navigator.clipboard.writeText(mermaidCode); toast.success("Code Copied!"); }} 
-                className="p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-all text-zinc-400 hover:text-white"
-                title="Copy Mermaid Code"
-              >
-                <Copy className="w-4 h-4" />
-              </button>
-              
-              {/* 📥 DOWNLOAD BUTTON */}
-              <button 
-                onClick={downloadDiagram}
-                className="p-3 bg-blue-600/20 rounded-xl hover:bg-blue-600/40 border border-blue-500/30 transition-all text-blue-400 hover:text-white flex items-center gap-2"
-                title="Download as PNG"
-              >
-                <FileDown className="w-4 h-4" />
-                <span className="text-[9px] font-black uppercase tracking-wider">Download_PNG</span>
-              </button>
-            </div>
-          </div>
+                    {/* Preview Side */}
+                    <div className="bg-[#0d1117] border border-white/5 rounded-[2.5rem] p-12 overflow-y-auto custom-scrollbar relative">
+                      <article className="prose prose-invert max-w-none">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {String(editableMarkdown || "")} 
+                        </ReactMarkdown>
+                      </article>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div key="mermaid" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="bg-[#050505] border border-white/5 rounded-[2.5rem] p-12 min-h-[600px] flex flex-col items-center justify-center relative">
+                    {isDiagramLoading ? (
+                      <div className="flex flex-col items-center gap-6">
+                        <Loader2 className="w-16 h-16 text-blue-500 animate-spin" />
+                        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-zinc-600 animate-pulse">Mapping_Infrastructure...</p>
+                      </div>
+                    ) : mermaidCode ? (
+                      <div className="w-full h-full flex flex-col items-center">
+                        <div className="w-full flex justify-between items-center mb-8">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Live_Architecture_Graph</span>
+                          <div className="flex gap-3">
+                            <button 
+                              onClick={() => { navigator.clipboard.writeText(mermaidCode); toast.success("Code Copied!"); }} 
+                              className="p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-all text-zinc-400 hover:text-white"
+                              title="Copy Mermaid Code"
+                            >
+                              <Copy className="w-4 h-4" />
+                            </button>
+                            
+                            <button 
+                              onClick={downloadDiagram}
+                              className="p-3 bg-blue-600/20 rounded-xl hover:bg-blue-600/40 border border-blue-500/30 transition-all text-blue-400 hover:text-white flex items-center gap-2"
+                              title="Download as PNG"
+                            >
+                              <FileDown className="w-4 h-4" />
+                              <span className="text-[9px] font-black uppercase tracking-wider">Download_PNG</span>
+                            </button>
+                          </div>
+                        </div>
 
-          {/* 🎨 ARCHITECTURE RENDERER */}
-          <div className="w-full bg-[#0d1117]/50 rounded-3xl border border-white/5 p-8">
-            <MermaidRenderer chart={mermaidCode} />
-          </div>
-        </div>
-      ) : (
-        // INITIAL STATE
-        <button onClick={fetchDiagram} className="bg-blue-600 px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px]">
-          Initialize_Scan
-        </button>
-      )}
-    </motion.div>
-  )}
-</AnimatePresence>
+                        <div className="w-full bg-[#0d1117]/50 rounded-3xl border border-white/5 p-8">
+                          <div id="mermaid-diagram-container" className="w-full flex justify-center">
+                            <MermaidRenderer chart={mermaidCode} />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={fetchDiagram} className="bg-blue-600 px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px]">
+                        Initialize_Scan
+                      </button>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
           )}
         </div>
