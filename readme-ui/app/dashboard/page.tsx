@@ -187,31 +187,66 @@ export default function Dashboard() {
   };
 
   // 🌿 6. GITHUB PULL REQUEST WORKFLOW
-  const handleCreatePR = async () => {
-    const token = localStorage.getItem("gh_token");
-    setIsPRLoading(true);
-    const prToast = toast.loading("Initiating Pull Request Workflow...");
+const handleCreatePR = async () => {
+  // 1. Pehle token lo aur check karo
+  const token = localStorage.getItem("gh_token");
+  
+  // 🔍 FRONTEND DEFENSE: Agar token nahi hai toh request bhejo hi mat
+  if (!token || token === "null" || token === "undefined") {
+    toast.error("GitHub token missing! Please login again.");
+    return;
+  }
+
+  // 2. Content check: Khali README push karke kya karoge?
+  if (!editableMarkdown || editableMarkdown.trim() === "") {
+    toast.error("README content is empty!");
+    return;
+  }
+
+  setIsPRLoading(true);
+  const prToast = toast.loading("Initiating Pull Request Workflow...");
+  
+  try {
+    const res = await fetch(`${BACKEND_URL}/github/pull-request`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        // Extra safety: Kuch servers Authorization header bhi mangte hain
+        "Authorization": `Bearer ${token}` 
+      },
+      body: JSON.stringify({ 
+        token: token, 
+        repo_url: url, 
+        content: editableMarkdown 
+      })
+    });
     
-    try {
-      const res = await fetch(`${BACKEND_URL}/github/pull-request`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, repo_url: url, content: editableMarkdown })
-      });
-      
-      const data = await res.json();
-      if (data.status === "success") {
-        toast.success("PR Created Successfully!", { id: prToast });
-        window.open(data.pr_url, "_blank"); 
-      } else {
-        throw new Error(data.message);
+    const data = await res.json();
+
+    if (res.ok && data.status === "success") {
+      toast.success("PR Created Successfully!", { id: prToast });
+      // 🚀 PR page ko naye tab mein kholo
+      if (data.pr_url) {
+        window.open(data.pr_url, "_blank");
       }
-    } catch (err) {
-      toast.error("PR Failed. Check permissions.", { id: prToast });
-    } finally {
-      setIsPRLoading(false);
+    } else {
+      // Backend ka asali error message dikhao
+      throw new Error(data.message || "Failed to create PR");
     }
-  };
+  } catch (err) {
+    // Type-casting 'err' to Error object safely
+    const error = err as Error; 
+    
+    console.error("PR Error:", error);
+    
+    // Ab 'error.message' safely use kar sakte ho
+    toast.error(error.message || "PR Failed. Check permissions.", { 
+      id: prToast 
+    });
+  }finally {
+    setIsPRLoading(false);
+  }
+};
 
   const logout = () => {
     localStorage.removeItem("gh_token");
