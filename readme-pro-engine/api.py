@@ -99,53 +99,76 @@ async def create_pr(request: dict):
     repo_url = request.get("repo_url")
     content = request.get("content")
     
-    if not token or not repo_url:
-        raise HTTPException(status_code=400, detail="Missing Token or URL")
+    if not token or not repo_url or not content:
+        print("❌ ERROR: Missing required fields")
+        raise HTTPException(status_code=400, detail="Missing data: token, url, or content")
 
-    parts = repo_url.rstrip("/").split("/")
+    # URL Cleanup
+    repo_url = repo_url.rstrip("/")
+    parts = repo_url.split("/")
     owner, repo = parts[-2], parts[-1]
+    
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     base_api = f"https://api.github.com/repos/{owner}/{repo}"
 
     async with httpx.AsyncClient() as client:
         try:
-            # A. Get Default Branch (main/master)
+            # 1. Get Default Branch
+            print(f"🔍 Fetching repo info for {owner}/{repo}")
             repo_res = await client.get(base_api, headers=headers)
+            if repo_res.status_code != 200:
+                return {"status": "error", "message": f"GitHub API Error: {repo_res.text}"}
+            
             main_branch = repo_res.json().get("default_branch", "main")
             
-            # B. Get main branch SHA
+            # 2. Get main branch SHA
             ref_res = await client.get(f"{base_api}/git/ref/heads/{main_branch}", headers=headers)
             main_sha = ref_res.json()["object"]["sha"]
 
-            # C. Create New Branch (Unique name)
-            new_branch = f"ai-update-{int(time.time())}"
-            await client.post(f"{base_api}/git/refs", headers=headers, json={
+            # 3. Create New Branch (Timestamp add kiya taaki hamesha unique rahe)
+            new_branch = f"ai-update-{int(time.time())}" 
+            print(f"🌿 Creating branch: {new_branch}")
+            
+            branch_res = await client.post(f"{base_api}/git/refs", headers=headers, json={
                 "ref": f"refs/heads/{new_branch}",
                 "sha": main_sha
             })
 
-            # D. Get README SHA (if exists)
+            if branch_res.status_code != 201:
+                return {"status": "error", "message": f"Branch Creation Failed: {branch_res.text}"}
+
+            # 4. Get README SHA
             readme_res = await client.get(f"{base_api}/contents/README.md?ref={new_branch}", headers=headers)
             file_sha = readme_res.json().get("sha") if readme_res.status_code == 200 else None
 
-            # E. Commit to New Branch
+            # 5. Commit
+            print("💾 Committing changes...")
+            encoded_content = base64.b64encode(content.encode()).decode()
             await client.put(f"{base_api}/contents/README.md", headers=headers, json={
-                "message": "docs: AI-generated documentation update",
-                "content": base64.b64encode(content.encode()).decode(),
+                "message": "docs: AI documentation sync",
+                "content": encoded_content,
                 "branch": new_branch,
                 "sha": file_sha
             })
 
-            # F. Open the Pull Request
+            # 6. Create Pull Request
+            print("📝 Opening Pull Request...")
             pr_res = await client.post(f"{base_api}/pulls", headers=headers, json={
-                "title": "📝 AI Documentation Review",
-                "body": "Automated README update and architecture mapping via ENGINE_v2.",
+                "title": "📝 AI Documentation Update",
+                "body": "This PR contains the AI-generated README and architecture map. Review and merge to main.",
                 "head": new_branch,
                 "base": main_branch
             })
             
-            return {"status": "success", "pr_url": pr_res.json().get("html_url")}
+            pr_data = pr_res.json()
+            if "html_url" in pr_data:
+                print(f"✅ PR Created: {pr_data['html_url']}")
+                return {"status": "success", "pr_url": pr_data["html_url"]}
+            else:
+                return {"status": "error", "message": f"PR Creation Error: {pr_data.get('message')}"}
+
         except Exception as e:
+            print(f"❌ CRITICAL ERROR: {str(e)}")
             return {"status": "error", "message": str(e)}
         
 
