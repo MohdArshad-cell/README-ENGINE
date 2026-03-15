@@ -269,38 +269,40 @@ async def generate_diagram(request: dict):
 # ---------------------------------------------------------
 @app.post("/generate-readme")
 async def generate_readme(request: RepoRequest):
-    # 1️⃣ STEP 0: Check Redis Cache (Bina iske Redis lagane ka koi fayda nahi)
-    cached_result = cache_mgr.get_cached_readme(request.url)
-    if cached_result:
-        print(f"🎯 [Cache Hit] Serving stored data for: {request.url}")
-        return cached_result
+    # 1. 🎯 REDIS CHECK: Pehle check karo kya humein ye pehle se pata hai?
+    try:
+        cached_result = cache_mgr.get_cached_readme(request.url)
+        if cached_result:
+            print(f"🎯 [Cache Hit] Serving stored data from Redis for: {request.url}")
+            return cached_result
+    except Exception as e:
+        print(f"⚠️ Cache read error (skipping): {e}")
 
-    # 2️⃣ STEP 1: Process Repository (Cache Miss)
+    # 2. ⚡ CACHE MISS: Ab mehnat karni padegi
     print(f"⚡ [Cache Miss] Processing new repo: {request.url}")
     git_mgr = GitManager()
     target_path = git_mgr.clone_repo(request.url)
     
     if not target_path:
-        raise HTTPException(status_code=400, detail="Clone Failed")
+        raise HTTPException(status_code=400, detail="Clone Failed: Could not access repository.")
 
     try:
-        print("🚀 Step 1: Starting Scanner...")
+        # --- TECHNICAL SCANNING STEPS ---
+        print("🚀 Step 1: Scanning Files...")
         scanner = RepositoryScanner(target_path)
         scanned_data = scanner.scan()
-        print(f"✅ Scanner found {len(scanned_data['code_files'])} files.")
 
-        print("🚀 Step 2: Starting Analyzer...")
+        print("🚀 Step 2: Analyzing Architecture...")
         analyzer = ProjectAnalyzer(target_path)
         analysis_report = analyzer.analyze(scanned_data)
 
-        print("🚀 Step 3: Starting Report Builder (Deep Parsing)...")
+        print("🚀 Step 3: Building Report Context...")
         builder = ReportBuilder(target_path)
         final_report = builder.build(scanned_data, analysis_report)
-        print("✅ Report built successfully.")
 
-        print("🚀 Step 4: Calling Gemini API...")
+        print("🚀 Step 4: Calling Gemini API with your Elite Prompt...")
         
-        # 🎯 YOUR ELITE PROMPT (UNCHANGED)
+        # 🎯 YOUR ELITE PROMPT (Do not change this)
         prompt = f"""
 You are an Elite Technical Documentation Architect. Your mission is to transform raw JSON metadata into a world-class README.md that screams engineering excellence.
 
@@ -356,31 +358,36 @@ TONE & QUALITY GATE:
 - Ensure all Markdown syntax is strictly GFM compliant.
 """
 
-        # 🚀 CALL GEMINI
+        # 🚀 THE CRITICAL LINE (Defining 'response')
         response = model.generate_content(prompt)
         
-        if not response or not response.text:
-            raise Exception("Gemini API failed to return content")
+        if not response or not hasattr(response, 'text'):
+            raise Exception("Gemini API failed to generate a valid text response.")
 
+        # 🚀 BUILDING THE FINAL PAYLOAD
         final_response = {
             "status": "success",
             "markdown": response.text,
             "metadata": analysis_report
         }
 
-        # 3️⃣ STEP 5: Save to Redis Cache (Future saves)
-        cache_mgr.set_cached_readme(request.url, final_response)
+        # 3. 💾 CACHE FOR FUTURE: Save it so next time is instant
+        try:
+            cache_mgr.set_cached_readme(request.url, final_response)
+            print(f"✅ [Cache] Saved results for {request.url}")
+        except Exception as cache_err:
+            print(f"⚠️ Cache write failed: {cache_err}")
 
         return final_response
 
     except Exception as e:
         print(f"❌ CRITICAL ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Engine Error: {str(e)}")
     finally:
-        print("🧹 Cleaning up...")
+        print("🧹 Cleaning up temp files...")
         git_mgr.cleanup()
 
-        
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
