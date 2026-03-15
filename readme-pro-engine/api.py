@@ -269,10 +269,17 @@ async def generate_diagram(request: dict):
 # ---------------------------------------------------------
 @app.post("/generate-readme")
 async def generate_readme(request: RepoRequest):
+    # 1️⃣ STEP 0: Check Redis Cache (Bina iske Redis lagane ka koi fayda nahi)
+    cached_result = cache_mgr.get_cached_readme(request.url)
+    if cached_result:
+        print(f"🎯 [Cache Hit] Serving stored data for: {request.url}")
+        return cached_result
+
+    # 2️⃣ STEP 1: Process Repository (Cache Miss)
+    print(f"⚡ [Cache Miss] Processing new repo: {request.url}")
     git_mgr = GitManager()
-    print(f"🔍 Request received for URL: {request.url}") # Log 1
-    
     target_path = git_mgr.clone_repo(request.url)
+    
     if not target_path:
         raise HTTPException(status_code=400, detail="Clone Failed")
 
@@ -291,8 +298,9 @@ async def generate_readme(request: RepoRequest):
         final_report = builder.build(scanned_data, analysis_report)
         print("✅ Report built successfully.")
 
-        print("🚀 Step 4: Calling Gemini API (This might take a moment)...")
-        # AI Prompt
+        print("🚀 Step 4: Calling Gemini API...")
+        
+        # 🎯 YOUR ELITE PROMPT (UNCHANGED)
         prompt = f"""
 You are an Elite Technical Documentation Architect. Your mission is to transform raw JSON metadata into a world-class README.md that screams engineering excellence.
 
@@ -336,7 +344,7 @@ STRICT ARCHITECTURE & FORMATTING RULES:
    - Add a 'License' section (default to MIT unless specified).
 
 STRICT FORMATTING RULES:
-- VERTICAL SPACING: Use exactly TWO newlines (\n\n) between every section, heading, and paragraph.
+- VERTICAL SPACING: Use exactly TWO newlines (\\n\\n) between every section, heading, and paragraph.
 - HEADINGS: Use proper Markdown headers (##, ###) instead of just bolding text. Never put a heading on the same line as the content.
 - LISTS: Every bullet point MUST start on a new line.
 - CODE BLOCKS: All terminal commands or file paths MUST be wrapped in triple backticks (```bash ... ```).
@@ -347,17 +355,20 @@ TONE & QUALITY GATE:
 - If a section has no data, skip it—DO NOT hallucinate.
 - Ensure all Markdown syntax is strictly GFM compliant.
 """
-        
-        # Yahan timeout ka issue ho sakta hai
+
+        # 🚀 CALL GEMINI
         response = model.generate_content(prompt)
         
+        if not response or not response.text:
+            raise Exception("Gemini API failed to return content")
+
         final_response = {
             "status": "success",
             "markdown": response.text,
             "metadata": analysis_report
         }
 
-        # 3. Save to Cache
+        # 3️⃣ STEP 5: Save to Redis Cache (Future saves)
         cache_mgr.set_cached_readme(request.url, final_response)
 
         return final_response
@@ -369,6 +380,7 @@ TONE & QUALITY GATE:
         print("🧹 Cleaning up...")
         git_mgr.cleanup()
 
+        
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
