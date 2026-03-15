@@ -269,22 +269,27 @@ async def generate_diagram(request: dict):
 # ---------------------------------------------------------
 @app.post("/generate-readme")
 async def generate_readme(request: RepoRequest):
-    # 1. 🎯 THE CACHE CHECK (The "Senior Developer" Move)
+
+    # ✅ CACHE CHECK
     try:
         cached_result = cache_mgr.get_cached_readme(request.url)
         if cached_result:
-            print(f"🎯 [Cache Hit] Serving instant result for: {request.url}")
+            print(f"🎯 Cache Hit → {request.url}")
             return cached_result
-    except Exception as e:
-        print(f"⚠️ Cache read failed (skipping): {e}")
+    except Exception as cache_read_err:
+        print(f"⚠️ Cache read failed: {cache_read_err}")
 
-    # 2. ⚡ THE CACHE MISS (Execution Mode)
-    print(f"⚡ [Cache Miss] Processing new repo: {request.url}")
+    # ✅ CACHE MISS
+    print(f"⚡ Cache Miss → {request.url}")
+
     git_mgr = GitManager()
     target_path = git_mgr.clone_repo(request.url)
-    
+
     if not target_path:
-        raise HTTPException(status_code=400, detail="Clone Failed: Repository inaccessible.")
+        raise HTTPException(
+            status_code=400,
+            detail="Repository clone failed"
+        )
 
     try:
         # --- CORE ENGINE EXECUTION ---
@@ -358,29 +363,64 @@ TONE & QUALITY GATE:
 - Ensure all Markdown syntax is strictly GFM compliant.
 """
 
-        # 🚀 THE AI CALL (Renamed to 'gemini_result' to prevent shadowing)
-        gemini_result = model.generate_content(prompt)
-        
-        if not gemini_result or not hasattr(gemini_result, 'text'):
-            raise Exception("Gemini API failed to return a valid text response.")
+        try:
+            gemini_result = model.generate_content(prompt)
+        except Exception as llm_call_err:
+            print("❌ Gemini call crashed:", llm_call_err)
+            raise HTTPException(
+                status_code=500,
+                detail="LLM generation crashed"
+            )
 
-        # 📦 PREPARE PAYLOAD
+        if gemini_result is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Gemini returned None"
+            )
+
+        markdown = getattr(gemini_result, "text", None)
+
+        if markdown is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Gemini response missing text"
+            )
+
+        markdown = markdown.strip()
+
+        if markdown == "":
+            raise HTTPException(
+                status_code=500,
+                detail="Generated README empty"
+            )
+
+        # ===== FINAL RESPONSE =====
+
         final_response = {
             "status": "success",
-            "markdown": gemini_result.text,
+            "markdown": markdown,
             "metadata": analysis_report
         }
 
-        # 3. 💾 SAVE TO REDIS
-        cache_mgr.set_cached_readme(request.url, final_response)
+        # ===== CACHE WRITE SAFE =====
+
+        try:
+            cache_mgr.set_cached_readme(request.url, final_response)
+            print("✅ Cache stored")
+        except Exception as cache_write_err:
+            print("⚠️ Cache write failed:", cache_write_err)
 
         return final_response
 
-    except Exception as e:
-        print(f"❌ ENGINE ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as engine_err:
+        print("❌ ENGINE FAILURE:", engine_err)
+        raise HTTPException(
+            status_code=500,
+            detail=str(engine_err)
+        )
+
     finally:
-        print("🧹 Cleaning up workspace...")
+        print("🧹 Cleanup workspace")
         git_mgr.cleanup()
 
 
