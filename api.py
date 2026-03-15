@@ -173,35 +173,7 @@ async def create_pr(request: dict):
             return {"status": "error", "message": str(e)}
         
 
-@app.post("/generate-readme")
-async def generate_readme(request: RepoRequest):
-    # 1. Check Cache First
-    cached_result = cache_mgr.get_cached_readme(request.url)
-    if cached_result:
-        print(f"🎯 [Cache Hit] Serving stored data for: {request.url}")
-        return cached_result
 
-    # 2. Cache Miss - Do the heavy lifting
-    print(f"⚡ [Cache Miss] Processing new repo: {request.url}")
-    git_mgr = GitManager()
-    target_path = git_mgr.clone_repo(request.url)
-    
-    try:
-        # ... (Your existing scanner, analyzer, and builder logic) ...
-        
-        # After Gemini responds:
-        final_response = {
-            "status": "success",
-            "markdown": response.text,
-            "metadata": analysis_report
-        }
-
-        # 3. Save to Cache for next time
-        cache_mgr.set_cached_readme(request.url, final_response)
-
-        return final_response
-    finally:
-        git_mgr.cleanup()
 # ---------------------------------------------------------
 # 📊 3. GENERATE MERMAID ARCHITECTURE DIAGRAM
 # ---------------------------------------------------------
