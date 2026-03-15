@@ -48,6 +48,11 @@ GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 class RepoRequest(BaseModel):
     url: str
 
+@app.get("/")
+async def health_check():
+    return {"status": "online", "engine": "ENGINE_v2", "cache": "enabled" if cache_mgr.client else "disabled"}
+
+
 # ---------------------------------------------------------
 # 🔑 1. GITHUB OAUTH TOKEN EXCHANGE
 # ---------------------------------------------------------
