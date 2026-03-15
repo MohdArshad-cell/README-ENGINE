@@ -345,18 +345,21 @@ TONE & QUALITY GATE:
         
         # Yahan timeout ka issue ho sakta hai
         response = model.generate_content(prompt)
-        print("✅ Gemini responded!")
-
-        return {
+        
+        final_response = {
             "status": "success",
             "markdown": response.text,
             "metadata": analysis_report
         }
 
+        # 3. Save to Cache
+        cache_mgr.set_cached_readme(request.url, final_response)
+
+        return final_response
+
     except Exception as e:
-        print(f"❌ CRITICAL ERROR: {str(e)}") # Har error print hogi
+        print(f"❌ CRITICAL ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    
     finally:
         print("🧹 Cleaning up...")
         git_mgr.cleanup()
