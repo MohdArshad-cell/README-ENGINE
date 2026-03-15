@@ -358,34 +358,29 @@ TONE & QUALITY GATE:
 - Ensure all Markdown syntax is strictly GFM compliant.
 """
 
-        engine_output = model.generate_content(prompt)
+        # 🚀 THE AI CALL (Renamed to 'gemini_result' to prevent shadowing)
+        gemini_result = model.generate_content(prompt)
+        
+        if not gemini_result or not hasattr(gemini_result, 'text'):
+            raise Exception("Gemini API failed to return a valid text response.")
 
-        # 🛡️ VALIDATION: Is the output actually there?
-        if not engine_output or not hasattr(engine_output, 'text'):
-            print("❌ GEMINI FAILURE: Empty object returned")
-            raise Exception("AI failed to generate content")
-
-        markdown_content = engine_output.text.strip()
-        if not markdown_content:
-            raise Exception("AI returned empty string")
-
-        final_payload = {
+        # 📦 PREPARE PAYLOAD
+        final_response = {
             "status": "success",
-            "markdown": markdown_content,
+            "markdown": gemini_result.text,
             "metadata": analysis_report
         }
 
-        # 💾 SAVE TO CACHE
-        cache_mgr.set_cached_readme(request.url, final_payload)
-        print(f"✅ SUCCESS: README generated and cached for {request.url}")
+        # 3. 💾 SAVE TO REDIS
+        cache_mgr.set_cached_readme(request.url, final_response)
 
-        return final_payload
+        return final_response
 
-    except Exception as engine_err:
-        print(f"❌ CRITICAL ENGINE ERROR: {str(engine_err)}")
-        raise HTTPException(status_code=500, detail=str(engine_err))
+    except Exception as e:
+        print(f"❌ ENGINE ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
-        print("🧹 CLEANUP: Removing temp repo...")
+        print("🧹 Cleaning up workspace...")
         git_mgr.cleanup()
 
 
