@@ -1,32 +1,41 @@
 import redis
-import json
 import os
 import hashlib
-from dotenv import load_dotenv
-
-load_dotenv()
+import json
 
 class CacheManager:
     def __init__(self):
-        # Use Upstash or local Redis URL from .env
-        self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-        self.client = redis.from_url(self.redis_url, decode_responses=True)
-        self.ttl = 86400  # 24 Hours in seconds
+        self.redis_url = os.getenv("REDIS_URL")
+        self.client = None
+        
+        # Check if URL exists and has the correct scheme
+        if self.redis_url and (self.redis_url.startswith("redis://") or self.redis_url.startswith("rediss://")):
+            try:
+                self.client = redis.from_url(self.redis_url, decode_responses=True)
+                # Test connection
+                self.client.ping()
+                print("✅ [Cache] Connected to Redis successfully.")
+            except Exception as e:
+                print(f"⚠️ [Cache] Redis connection failed: {e}. Caching disabled.")
+                self.client = None
+        else:
+            print("⚠️ [Cache] REDIS_URL is missing or invalid. Caching disabled.")
 
-    def _get_hash(self, url: str):
-        """Generate a unique key for the GitHub URL."""
-        return hashlib.md5(url.lower().strip().encode()).hexdigest()
+    def get_cached_readme(self, url):
+        if not self.client: return None
+        try:
+            key = f"readme:{hashlib.md5(url.encode()).hexdigest()}"
+            data = self.client.get(key)
+            return json.loads(data) if data else None
+        except:
+            return None
 
-    def get_cached_readme(self, url: str):
-        """Check if we already have the AI result for this repo."""
-        key = f"readme:{self._get_hash(url)}"
-        cached_data = self.client.get(key)
-        return json.loads(cached_data) if cached_data else None
-
-    def set_cached_readme(self, url: str, data: dict):
-        """Save the result to Redis with a 24-hour expiry."""
-        key = f"readme:{self._get_hash(url)}"
-        self.client.setex(key, self.ttl, json.dumps(data))
-        print(f"🚀 [Cache] Saved result for {url}")
+    def set_cached_readme(self, url, data):
+        if not self.client: return
+        try:
+            key = f"readme:{hashlib.md5(url.encode()).hexdigest()}"
+            self.client.setex(key, 86400, json.dumps(data))
+        except Exception as e:
+            print(f"❌ [Cache] Save error: {e}")
 
 cache_mgr = CacheManager()
