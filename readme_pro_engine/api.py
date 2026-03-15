@@ -4,7 +4,7 @@ import time
 import httpx
 import base64
 import uvicorn
-import google.generativeai as genai
+from google import genai
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -39,8 +39,8 @@ app.add_middleware(
     expose_headers=["*"],
 )
 # 🧠 Gemini & GitHub Config
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-2.5-flash-lite') # Recommended for speed/accuracy balance
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
@@ -210,7 +210,10 @@ async def generate_diagram(request: dict):
         Context: {full_context}
         """
 
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt
+        )
         raw_code = response.text.replace("```mermaid", "").replace("```", "").strip()
 
         # 🚀 BASIC CLEANER: Just ensure quotes are balanced and graph TD is there
@@ -336,21 +339,17 @@ TONE & QUALITY GATE:
 """
 
         try:
-            gemini_result = model.generate_content(prompt)
+            # ✅ CORRECT NEW SDK CALL
+            gemini_result = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt
+            )
         except Exception as llm_call_err:
             print("❌ Gemini call crashed:", llm_call_err)
-            raise HTTPException(
-                status_code=500,
-                detail="LLM generation crashed"
-            )
+            raise HTTPException(status_code=500, detail="LLM generation crashed")
 
-        if gemini_result is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Gemini returned None"
-            )
-
-        markdown = getattr(gemini_result, "text", None)
+        # In the new SDK, 'text' is a direct attribute
+        markdown = gemini_result.text if gemini_result else None
 
         if markdown is None:
             raise HTTPException(
