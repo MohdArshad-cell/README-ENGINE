@@ -4,8 +4,10 @@ import time
 import httpx
 import base64
 import uvicorn
+import hmac
+import hashlib
 from google import genai
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request , BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -52,7 +54,94 @@ class RepoRequest(BaseModel):
 async def health_check():
     return {"status": "online", "engine": "ENGINE_v2", "cache": "enabled" if cache_mgr.client else "disabled"}
 
+import hmac
+import hashlib
+from fastapi import BackgroundTasks, Header, Request
 
+# ... (baaki imports same rahenge)
+
+WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
+
+# 🛠️ UTILITY: Signature Verification (Security for Business)
+def verify_signature(payload_body: bytes, signature_header: str):
+    if not WEBHOOK_SECRET:
+        return True # Testing ke liye
+    hash_object = hmac.new(WEBHOOK_SECRET.encode(), payload_body, hashlib.sha256)
+    expected_signature = "sha256=" + hash_object.hexdigest()
+    return hmac.compare_digest(expected_signature, signature_header)
+
+# ---------------------------------------------------------
+# 🤖 THE BACKGROUND WORKER (The "Ghost" in the Machine)
+# ---------------------------------------------------------
+async def process_webhook_task(repo_url: str, branch: str):
+    print(f"👻 Background Worker started for: {repo_url} on branch: {branch}")
+    
+    # Logic: Force a new scan because a push just happened
+    git_mgr = GitManager()
+    target_path = git_mgr.clone_repo(repo_url)
+    
+    if not target_path:
+        print(f"❌ Worker failed to clone: {repo_url}")
+        return
+
+    try:
+        # 1. Standard Engine Flow
+        scanner = RepositoryScanner(target_path)
+        data = scanner.scan()
+        analyzer = ProjectAnalyzer(target_path)
+        report = analyzer.analyze(data)
+        builder = ReportBuilder(target_path)
+        final_report = builder.build(data, report)
+
+        # 2. Call Gemini
+        prompt = f"Identify changes and update this README for the new architecture: {final_report}"
+        gemini_result = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+        
+        if gemini_result and hasattr(gemini_result, 'text'):
+            final_response = {
+                "status": "success",
+                "markdown": gemini_result.text,
+                "metadata": report,
+                "last_updated": int(time.time())
+            }
+            # 3. Update Cache (Taki jab user website par aaye toh usey latest mile)
+            cache_mgr.set_cached_readme(repo_url, final_response)
+            print(f"✅ Auto-Pilot: Documentation updated for {repo_url}")
+            
+            # TODO: Future mein yahan PR open karne wali logic add karenge
+    except Exception as e:
+        print(f"❌ Worker Error: {e}")
+    finally:
+        git_mgr.cleanup()
+
+# ---------------------------------------------------------
+# 📡 THE WEBHOOK ENDPOINT
+# ---------------------------------------------------------
+@app.post("/webhook")
+async def github_webhook(
+    request: Request, 
+    background_tasks: BackgroundTasks,
+    x_hub_signature_256: str = Header(None)
+):
+    payload_bytes = await request.body()
+    
+    # 1. Verify Security
+    if not verify_signature(payload_bytes, x_hub_signature_256):
+        raise HTTPException(status_code=401, detail="Invalid Signature")
+
+    data = await request.json()
+    
+    # 2. Check if it's a 'push' event
+    if "repository" in data and "ref" in data:
+        repo_url = data["repository"]["html_url"]
+        branch = data["ref"].split("/")[-1]
+        
+        # 3. Trigger Background Task (Crucial for Business Scalability)
+        background_tasks.add_task(process_webhook_task, repo_url, branch)
+        
+        return {"status": "accepted", "message": "Engine waking up..."}
+    
+    return {"status": "ignored"}
 # ---------------------------------------------------------
 # 🔑 1. GITHUB OAUTH TOKEN EXCHANGE
 # ---------------------------------------------------------
