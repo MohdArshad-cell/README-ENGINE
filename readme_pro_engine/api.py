@@ -6,6 +6,8 @@ import base64
 import uvicorn
 import hmac
 import hashlib
+import jwt # pip install pyjwt
+from datetime import datetime, timedelta
 from google import genai
 from fastapi import FastAPI, HTTPException, Request , BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -161,30 +163,43 @@ async def process_webhook_task(repo_url: str, branch: str):
 # 📡 THE WEBHOOK ENDPOINT
 # ---------------------------------------------------------
 @app.post("/webhook")
-async def github_webhook(
-    request: Request, 
-    background_tasks: BackgroundTasks,
-    x_hub_signature_256: str = Header(None)
-):
-    payload_bytes = await request.body()
-    
-    # 1. Verify Security
-    if not verify_signature(payload_bytes, x_hub_signature_256):
-        raise HTTPException(status_code=401, detail="Invalid Signature")
-
+async def github_webhook(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     
-    # 2. Check if it's a 'push' event
-    if "repository" in data and "ref" in data:
+    # Check if it's a push event
+    if "repository" in data and "installation" in data:
         repo_url = data["repository"]["html_url"]
-        branch = data["ref"].split("/")[-1]
+        installation_id = data["installation"]["id"]
+        branch = data.get("ref", "refs/heads/main").split("/")[-1]
         
-        # 3. Trigger Background Task (Crucial for Business Scalability)
-        background_tasks.add_task(process_webhook_task, repo_url, branch)
+        # Ab hum installation_id bhi worker ko bhejenge
+        background_tasks.add_task(process_webhook_task, repo_url, branch, installation_id)
         
-        return {"status": "accepted", "message": "Engine waking up..."}
+    return {"status": "accepted"}
+
+
+def get_installation_token(installation_id: int):
+    # 1. Generate JWT (To prove we are the App)
+    app_id = os.getenv("GITHUB_APP_ID")
+    private_key = os.getenv("GITHUB_PRIVATE_KEY").replace("\\n", "\n")
     
-    return {"status": "ignored"}
+    payload = {
+        "iat": int(time.time()),
+        "exp": int(time.time()) + (10 * 60), # 10 min expiry
+        "iss": app_id
+    }
+    
+    encoded_jwt = jwt.encode(payload, private_key, algorithm="RS256")
+    
+    # 2. Get Installation Token (To act on a specific repo)
+    headers = {
+        "Authorization": f"Bearer {encoded_jwt}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
+    res = requests.post(url, headers=headers)
+    return res.json().get("token")
 # ---------------------------------------------------------
 # 🔑 1. GITHUB OAUTH TOKEN EXCHANGE
 # ---------------------------------------------------------
