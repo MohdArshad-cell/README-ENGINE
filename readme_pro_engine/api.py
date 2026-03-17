@@ -6,6 +6,8 @@ import base64
 import uvicorn
 import hmac
 import hashlib
+import time
+import httpx
 import jwt # pip install pyjwt
 from datetime import datetime, timedelta
 from google import genai
@@ -166,16 +168,18 @@ async def process_webhook_task(repo_url: str, branch: str):
 async def github_webhook(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     
-    # Check if it's a push event
+    # Check if this is a 'push' event inside an installed app
     if "repository" in data and "installation" in data:
         repo_url = data["repository"]["html_url"]
-        installation_id = data["installation"]["id"]
+        installation_id = data["installation"]["id"]  # 👈 Ye ID bohot zaroori hai
         branch = data.get("ref", "refs/heads/main").split("/")[-1]
         
-        # Ab hum installation_id bhi worker ko bhejenge
+        # Trigger background task with Installation ID
         background_tasks.add_task(process_webhook_task, repo_url, branch, installation_id)
         
-    return {"status": "accepted"}
+        return {"status": "accepted", "message": "App Engine Waking Up..."}
+    
+    return {"status": "ignored"}
 
 
 def get_installation_token(installation_id: int):
@@ -200,6 +204,47 @@ def get_installation_token(installation_id: int):
     url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
     res = requests.post(url, headers=headers)
     return res.json().get("token")
+
+def get_installation_token(installation_id: int):
+    # 1. Load variables
+    app_id = os.getenv("GITHUB_APP_ID")
+    # 🔥 CRITICAL FIX: Replace literal '\n' with actual newline characters
+    private_key = os.getenv("GITHUB_PRIVATE_KEY").replace("\\n", "\n")
+
+    # 2. Create JWT (Proof that WE are the App)
+    # JWT expiry 10 mins se zyada nahi honi chahiye
+    now = int(time.time())
+    payload = {
+        "iat": now - 60,           # Issued at (1 min ago for clock drift)
+        "exp": now + (10 * 60),    # Expires in 10 mins
+        "iss": app_id              # GitHub App ID
+    }
+
+    try:
+        # RS256 algorithm uses the Private Key to sign the JWT
+        encoded_jwt = jwt.encode(payload, private_key, algorithm="RS256")
+    except Exception as e:
+        print(f"❌ JWT SIGNING FAILED: {e}")
+        return None
+
+    # 3. Exchange JWT for an Installation Access Token
+    headers = {
+        "Authorization": f"Bearer {encoded_jwt}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
+    
+    # Sync request for token exchange (Fast and mandatory before processing)
+    with httpx.Client() as client:
+        response = client.post(url, headers=headers)
+        if response.status_code == 201:
+            return response.json().get("token")
+        else:
+            print(f"❌ TOKEN EXCHANGE FAILED: {response.text}")
+            return None
+        
+
 # ---------------------------------------------------------
 # 🔑 1. GITHUB OAUTH TOKEN EXCHANGE
 # ---------------------------------------------------------
