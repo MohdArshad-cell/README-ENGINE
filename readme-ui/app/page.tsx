@@ -8,6 +8,7 @@ import {
   Terminal, Code2, Waypoints, Cpu, Globe, Lock, Check 
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
+import GitHubInstallButton from "@/components/GitHubInstallButton";
 
 /**
  * 🛰️ HELPER COMPONENT: BENTO CARD
@@ -129,15 +130,7 @@ export default function FuturisticLanding() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-6">
-              <button 
-                onClick={handleLogin}
-                className="relative overflow-hidden group bg-blue-600 px-12 py-5 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all hover:shadow-[0_0_40px_rgba(37,99,235,0.4)]"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
-                <span className="flex items-center justify-center gap-3">
-                  Initiate Handshake <ChevronRight className="w-4 h-4" />
-                </span>
-              </button>
+            <GitHubInstallButton />
               <div className="flex items-center gap-4 px-8 py-5 border border-white/5 rounded-2xl text-[10px] uppercase font-bold text-zinc-600 tracking-widest whitespace-nowrap">
                 <Globe className="w-4 h-4" /> 12.4k Commits Made
               </div>
