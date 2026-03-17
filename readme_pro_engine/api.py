@@ -1,24 +1,12 @@
-import os
-import requests
-import time
-import httpx
-import base64
-import uvicorn
-import hmac
-import hashlib
-import jwt
-import uuid
-import shutil
-import stat
-from fastapi import BackgroundTasks, Header, Request
+import os, time, httpx, base64, hmac, hashlib, jwt, uuid, json
 from datetime import datetime, timedelta
-from google import genai
-from fastapi import FastAPI, HTTPException, Request , BackgroundTasks, Header
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from git import Repo
-# 🛠️ Core Engine Imports
+from google import genai
+
+# 🛠️ Core Engine Imports (Ab ye clean hain)
 from core.git_manager import GitManager
 from core.scanner import RepositoryScanner
 from core.analyzer import ProjectAnalyzer
@@ -27,29 +15,22 @@ from core.cache_manager import cache_mgr
 # .env file load karo
 load_dotenv()
 
-app = FastAPI(title="README_ENGINE_FINAL_V2", version="2.0")
+app = FastAPI(title="README_ENGINE_PRO", version="2.0")
 
-# api.py mein purane CORSMiddleware ko hata kar ye dalo
-
-
-# Origins ki list
-origins = [
-    "https://readme-engine.vercel.app",
-    "http://localhost:3000",
-]
-
+# 🌐 CORS Configuration
+origins = ["https://readme-engine.vercel.app", "http://localhost:3000"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], # Explicitly add OPTIONS
+    allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
+
+
 # 🧠 Gemini & GitHub Config
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 GEMINI_MODEL = "gemini-2.5-flash-lite"
-
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 
@@ -62,60 +43,10 @@ async def health_check():
 
 
 
-# ... (baaki imports same rahenge)
-
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
 
 
-class GitManager:
-    def __init__(self, temp_dir=None):
-        """
-        🛠️ Unique Folder Logic: 
-        Agar temp_dir nahi di jati, toh ye automatic ek unique UUID folder banayega.
-        Isse 'Race Condition' khatam ho jati hai.
-        """
-        if temp_dir is None:
-            self.temp_dir = f"temp_repo_{uuid.uuid4().hex}"
-        else:
-            self.temp_dir = temp_dir
 
-    def _on_rm_error(self, func, path, exc_info):
-        """
-        Windows Read-Only files handling logic.
-        Agar file delete nahi ho rahi toh permission change karke dobara try karega.
-        """
-        try:
-            os.chmod(path, stat.S_IWRITE)
-            func(path)
-        except Exception as e:
-            print(f"⚠️ Could not remove {path}: {e}")
-
-    def clone_repo(self, repo_url):
-        """
-        Clones the repository into a unique temporary directory.
-        """
-        # Safety Check: Wese toh UUID unique hota hai, par redundancy ke liye
-        if os.path.exists(self.temp_dir):
-            print(f"🧹 Cleaning up existing folder: {self.temp_dir}")
-            shutil.rmtree(self.temp_dir, onerror=self._on_rm_error)
-        
-        print(f"📥 Cloning repository into: {self.temp_dir}...")
-        try:
-            # Repository ko clone karna
-            Repo.clone_from(repo_url, self.temp_dir)
-            print(f"✅ Clone successful in {self.temp_dir}")
-            return self.temp_dir
-        except Exception as e:
-            print(f"❌ Error cloning repo: {e}")
-            return None
-
-    def cleanup(self):
-        """
-        Deletes the unique temporary directory after processing is done.
-        """
-        if os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir, onerror=self._on_rm_error)
-            print(f"🧹 Temp folder {self.temp_dir} cleaned up.")
 
 
 # 🛠️ UTILITY: Signature Verification (Security for Business)
@@ -130,28 +61,33 @@ def verify_signature(payload_body: bytes, signature_header: str):
 # 🤖 THE BACKGROUND WORKER (The "Ghost" in the Machine)
 # ---------------------------------------------------------
 async def process_webhook_task(repo_url: str, branch: str, installation_id: int):
-    print(f"🤖 Universal Bot started for: {repo_url} (ID: {installation_id})")
+    # 1. Unique ID generate karo task ke liye (For better logging)
+    task_id = f"{installation_id}_{int(time.time())}"
+    print(f"🤖 Universal Bot started | Task: {task_id} | Repo: {repo_url}")
     
-    # 1. Get a Fresh Installation Token (The Master Key)
+    # 2. Get a Fresh Installation Token
     token = get_installation_token(installation_id)
     if not token:
-        print("❌ Could not generate installation token. Aborting.")
+        print(f"❌ [{task_id}] Could not generate installation token. Aborting.")
         return
 
-    # 2. Authenticated Cloning Logic
-    # Universal access ke liye humein token URL mein embed karna padta hai
-    # Format: https://x-access-token:<token>@github.com/owner/repo.git
+    # 3. Authenticated Cloning URL
     auth_repo_url = repo_url.replace("https://", f"https://x-access-token:{token}@")
     
-    git_mgr = GitManager()
+    # 4. Initialize GitManager with a Unique Folder
+    # Hum installation_id aur timestamp use kar rahe hain folder name mein 
+    # taki logs dekh kar pata chale kaunsa folder kis user ka hai.
+    unique_folder = f"temp_repo_{task_id}"
+    git_mgr = GitManager(temp_dir=unique_folder)
+    
     target_path = git_mgr.clone_repo(auth_repo_url)
     
     if not target_path:
-        print(f"❌ Failed to clone {repo_url}")
+        print(f"❌ [{task_id}] Failed to clone repo.")
         return
 
     try:
-        # --- Standard Engine Flow ---
+        # --- Standard Engine Flow (Using unique target_path) ---
         scanner = RepositoryScanner(target_path)
         data = scanner.scan()
         
@@ -162,12 +98,13 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
         final_report = builder.build(data, report)
 
         # --- Gemini AI Step ---
+        print(f"🚀 [{task_id}] Calling Gemini for README generation...")
         prompt = f"Act as a Senior Architect. Update this README with professional diagrams and clear structure: {final_report}"
         gemini_result = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         markdown = gemini_result.text if gemini_result else ""
 
         if not markdown: 
-            print("⚠️ Gemini returned empty text.")
+            print(f"⚠️ [{task_id}] Gemini returned empty text.")
             return
 
         # --- 🚀 GITHUB ACTION: CREATE PR ---
@@ -181,12 +118,12 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
             }
             base_url = f"https://api.github.com/repos/{owner}/{repo}"
 
-            # Step A: Get latest SHA of README (if exists)
+            # Step A: Get README SHA
             content_res = await http_client.get(f"{base_url}/contents/README.md", headers=headers)
             current_sha = content_res.json().get("sha") if content_res.status_code == 200 else None
 
-            # Step B: Create a unique branch
-            new_branch = f"readme-ai-update-{int(time.time())}"
+            # Step B: Create a unique branch for the PR
+            new_branch = f"readme-ai-{task_id}"
             main_ref = await http_client.get(f"{base_url}/git/ref/heads/{branch}", headers=headers)
             main_sha = main_ref.json()["object"]["sha"]
 
@@ -195,7 +132,7 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
                 "sha": main_sha
             })
 
-            # Step C: Commit File
+            # Step C: Commit the AI-generated Markdown
             encoded_content = base64.b64encode(markdown.encode()).decode()
             await http_client.put(f"{base_url}/contents/README.md", headers=headers, json={
                 "message": "docs: AI-powered architecture update 🤖",
@@ -204,22 +141,23 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
                 "sha": current_sha
             })
 
-            # Step D: Open PR
+            # Step D: Open the Pull Request
             pr_res = await http_client.post(f"{base_url}/pulls", headers=headers, json={
                 "title": "📝 AI Documentation Update",
-                "body": f"## Why this PR?\nDetected a code push on `{branch}`. I have analyzed the repository and updated the README with the latest architectural changes.\n\n_Generated by **README-ENGINE-PRO**_",
+                "body": f"## Why this PR?\nDetected a code push on `{branch}`. I have analyzed the repository structure and updated the documentation.\n\n_Generated by **README-ENGINE-PRO**_",
                 "head": new_branch,
                 "base": branch
             })
 
             if pr_res.status_code == 201:
-                print(f"🎉 SUCCESS! PR opened: {pr_res.json().get('html_url')}")
+                print(f"🎉 SUCCESS! [{task_id}] PR opened: {pr_res.json().get('html_url')}")
             else:
-                print(f"⚠️ PR Failed: {pr_res.text}")
+                print(f"⚠️ [{task_id}] PR Failed: {pr_res.text}")
 
     except Exception as e:
-        print(f"❌ Critical Error in Worker: {e}")
+        print(f"❌ [{task_id}] Critical Error: {e}")
     finally:
+        # 5. Cleanup the UNIQUE folder
         git_mgr.cleanup()
 
 # ---------------------------------------------------------
