@@ -6,9 +6,7 @@ import base64
 import uvicorn
 import hmac
 import hashlib
-import time
-import httpx
-import jwt # pip install pyjwt
+import jwt
 from datetime import datetime, timedelta
 from google import genai
 from fastapi import FastAPI, HTTPException, Request , BackgroundTasks, Header
@@ -77,39 +75,51 @@ def verify_signature(payload_body: bytes, signature_header: str):
 # ---------------------------------------------------------
 # 🤖 THE BACKGROUND WORKER (The "Ghost" in the Machine)
 # ---------------------------------------------------------
-async def process_webhook_task(repo_url: str, branch: str):
-    print(f"👻 Background Worker started for: {repo_url}")
+async def process_webhook_task(repo_url: str, branch: str, installation_id: int):
+    print(f"🤖 Universal Bot started for: {repo_url} (ID: {installation_id})")
     
-    # 1. Parsing Owner and Repo from URL
-    # URL format: https://github.com/owner/repo
-    parts = repo_url.rstrip("/").split("/")
-    owner, repo = parts[-2], parts[-1]
-    
-    token = os.getenv("GITHUB_TOKEN") # Ensure this is in your Render Env Vars
+    # 1. Get a Fresh Installation Token (The Master Key)
+    token = get_installation_token(installation_id)
     if not token:
-        print("❌ ERROR: GITHUB_TOKEN missing. Cannot create PR.")
+        print("❌ Could not generate installation token. Aborting.")
         return
 
-    git_mgr = GitManager()
-    target_path = git_mgr.clone_repo(repo_url)
+    # 2. Authenticated Cloning Logic
+    # Universal access ke liye humein token URL mein embed karna padta hai
+    # Format: https://x-access-token:<token>@github.com/owner/repo.git
+    auth_repo_url = repo_url.replace("https://", f"https://x-access-token:{token}@")
     
+    git_mgr = GitManager()
+    target_path = git_mgr.clone_repo(auth_repo_url)
+    
+    if not target_path:
+        print(f"❌ Failed to clone {repo_url}")
+        return
+
     try:
-        # --- Standard Analysis ---
+        # --- Standard Engine Flow ---
         scanner = RepositoryScanner(target_path)
         data = scanner.scan()
+        
         analyzer = ProjectAnalyzer(target_path)
         report = analyzer.analyze(data)
+        
         builder = ReportBuilder(target_path)
         final_report = builder.build(data, report)
 
-        # --- Gemini Call ---
-        prompt = f"Update this README with professional structure: {final_report}"
+        # --- Gemini AI Step ---
+        prompt = f"Act as a Senior Architect. Update this README with professional diagrams and clear structure: {final_report}"
         gemini_result = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         markdown = gemini_result.text if gemini_result else ""
 
-        if not markdown: return
+        if not markdown: 
+            print("⚠️ Gemini returned empty text.")
+            return
 
-        # --- 🚀 GITHUB BOT ACTION: CREATE PULL REQUEST ---
+        # --- 🚀 GITHUB ACTION: CREATE PR ---
+        parts = repo_url.rstrip("/").split("/")
+        owner, repo = parts[-2], parts[-1]
+        
         async with httpx.AsyncClient() as http_client:
             headers = {
                 "Authorization": f"token {token}",
@@ -117,12 +127,12 @@ async def process_webhook_task(repo_url: str, branch: str):
             }
             base_url = f"https://api.github.com/repos/{owner}/{repo}"
 
-            # 1. Get SHA of the current README (if exists)
+            # Step A: Get latest SHA of README (if exists)
             content_res = await http_client.get(f"{base_url}/contents/README.md", headers=headers)
             current_sha = content_res.json().get("sha") if content_res.status_code == 200 else None
 
-            # 2. Create a new branch
-            new_branch = f"ai-doc-update-{int(time.time())}"
+            # Step B: Create a unique branch
+            new_branch = f"readme-ai-update-{int(time.time())}"
             main_ref = await http_client.get(f"{base_url}/git/ref/heads/{branch}", headers=headers)
             main_sha = main_ref.json()["object"]["sha"]
 
@@ -131,33 +141,30 @@ async def process_webhook_task(repo_url: str, branch: str):
                 "sha": main_sha
             })
 
-            # 3. Commit new README to the new branch
+            # Step C: Commit File
             encoded_content = base64.b64encode(markdown.encode()).decode()
             await http_client.put(f"{base_url}/contents/README.md", headers=headers, json={
-                "message": "docs: AI-generated documentation update",
+                "message": "docs: AI-powered architecture update 🤖",
                 "content": encoded_content,
                 "branch": new_branch,
                 "sha": current_sha
             })
 
-            # 4. Open the Pull Request
+            # Step D: Open PR
             pr_res = await http_client.post(f"{base_url}/pulls", headers=headers, json={
                 "title": "📝 AI Documentation Update",
-                "body": "This PR was automatically generated by README_ENGINE_v2 after detecting a code push. It includes updated architecture diagrams and project metadata.",
+                "body": f"## Why this PR?\nDetected a code push on `{branch}`. I have analyzed the repository and updated the README with the latest architectural changes.\n\n_Generated by **README-ENGINE-PRO**_",
                 "head": new_branch,
                 "base": branch
             })
 
             if pr_res.status_code == 201:
-                print(f"✅ PR Created successfully: {pr_res.json().get('html_url')}")
+                print(f"🎉 SUCCESS! PR opened: {pr_res.json().get('html_url')}")
             else:
-                print(f"⚠️ PR Creation failed: {pr_res.text}")
-
-        # Final Cache update
-        cache_mgr.set_cached_readme(repo_url, {"status": "success", "markdown": markdown, "metadata": report})
+                print(f"⚠️ PR Failed: {pr_res.text}")
 
     except Exception as e:
-        print(f"❌ Worker Error: {str(e)}")
+        print(f"❌ Critical Error in Worker: {e}")
     finally:
         git_mgr.cleanup()
 
