@@ -7,6 +7,8 @@ import uvicorn
 import hmac
 import hashlib
 import jwt
+import uuid
+from fastapi import BackgroundTasks, Header, Request
 from datetime import datetime, timedelta
 from google import genai
 from fastapi import FastAPI, HTTPException, Request , BackgroundTasks, Header
@@ -56,9 +58,7 @@ class RepoRequest(BaseModel):
 async def health_check():
     return {"status": "online", "engine": "ENGINE_v2", "cache": "enabled" if cache_mgr.client else "disabled"}
 
-import hmac
-import hashlib
-from fastapi import BackgroundTasks, Header, Request
+
 
 # ... (baaki imports same rahenge)
 
@@ -172,45 +172,33 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
 # 📡 THE WEBHOOK ENDPOINT
 # ---------------------------------------------------------
 @app.post("/webhook")
-async def github_webhook(request: Request, background_tasks: BackgroundTasks):
-    data = await request.json()
+async def github_webhook(
+    request: Request, 
+    background_tasks: BackgroundTasks,
+    x_hub_signature_256: str = Header(None) # 👈 Header yahan capture karo
+):
+    # 1. Raw bytes lo signature verification ke liye
+    payload_bytes = await request.body()
     
-    # Check if this is a 'push' event inside an installed app
+    # 2. Signature Verify karo (Security Guard)
+    if not verify_signature(payload_bytes, x_hub_signature_256):
+        raise HTTPException(status_code=401, detail="Invalid Signature")
+
+    # 3. Ab JSON parse karo
+    import json
+    data = json.loads(payload_bytes)
+    
     if "repository" in data and "installation" in data:
         repo_url = data["repository"]["html_url"]
-        installation_id = data["installation"]["id"]  # 👈 Ye ID bohot zaroori hai
+        installation_id = data["installation"]["id"]
         branch = data.get("ref", "refs/heads/main").split("/")[-1]
         
-        # Trigger background task with Installation ID
         background_tasks.add_task(process_webhook_task, repo_url, branch, installation_id)
-        
         return {"status": "accepted", "message": "App Engine Waking Up..."}
     
     return {"status": "ignored"}
 
 
-def get_installation_token(installation_id: int):
-    # 1. Generate JWT (To prove we are the App)
-    app_id = os.getenv("GITHUB_APP_ID")
-    private_key = os.getenv("GITHUB_PRIVATE_KEY").replace("\\n", "\n")
-    
-    payload = {
-        "iat": int(time.time()),
-        "exp": int(time.time()) + (10 * 60), # 10 min expiry
-        "iss": app_id
-    }
-    
-    encoded_jwt = jwt.encode(payload, private_key, algorithm="RS256")
-    
-    # 2. Get Installation Token (To act on a specific repo)
-    headers = {
-        "Authorization": f"Bearer {encoded_jwt}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    
-    url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
-    res = requests.post(url, headers=headers)
-    return res.json().get("token")
 
 def get_installation_token(installation_id: int):
     # 1. Load variables
