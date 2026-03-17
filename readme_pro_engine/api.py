@@ -8,6 +8,8 @@ import hmac
 import hashlib
 import jwt
 import uuid
+import shutil
+import stat
 from fastapi import BackgroundTasks, Header, Request
 from datetime import datetime, timedelta
 from google import genai
@@ -15,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Request , BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
-
+from git import Repo
 # 🛠️ Core Engine Imports
 from core.git_manager import GitManager
 from core.scanner import RepositoryScanner
@@ -63,6 +65,58 @@ async def health_check():
 # ... (baaki imports same rahenge)
 
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
+
+
+class GitManager:
+    def __init__(self, temp_dir=None):
+        """
+        🛠️ Unique Folder Logic: 
+        Agar temp_dir nahi di jati, toh ye automatic ek unique UUID folder banayega.
+        Isse 'Race Condition' khatam ho jati hai.
+        """
+        if temp_dir is None:
+            self.temp_dir = f"temp_repo_{uuid.uuid4().hex}"
+        else:
+            self.temp_dir = temp_dir
+
+    def _on_rm_error(self, func, path, exc_info):
+        """
+        Windows Read-Only files handling logic.
+        Agar file delete nahi ho rahi toh permission change karke dobara try karega.
+        """
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except Exception as e:
+            print(f"⚠️ Could not remove {path}: {e}")
+
+    def clone_repo(self, repo_url):
+        """
+        Clones the repository into a unique temporary directory.
+        """
+        # Safety Check: Wese toh UUID unique hota hai, par redundancy ke liye
+        if os.path.exists(self.temp_dir):
+            print(f"🧹 Cleaning up existing folder: {self.temp_dir}")
+            shutil.rmtree(self.temp_dir, onerror=self._on_rm_error)
+        
+        print(f"📥 Cloning repository into: {self.temp_dir}...")
+        try:
+            # Repository ko clone karna
+            Repo.clone_from(repo_url, self.temp_dir)
+            print(f"✅ Clone successful in {self.temp_dir}")
+            return self.temp_dir
+        except Exception as e:
+            print(f"❌ Error cloning repo: {e}")
+            return None
+
+    def cleanup(self):
+        """
+        Deletes the unique temporary directory after processing is done.
+        """
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir, onerror=self._on_rm_error)
+            print(f"🧹 Temp folder {self.temp_dir} cleaned up.")
+
 
 # 🛠️ UTILITY: Signature Verification (Security for Business)
 def verify_signature(payload_body: bytes, signature_header: str):
