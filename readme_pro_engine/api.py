@@ -6,13 +6,14 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from google import genai
 
-# 🛠️ Core Engine Imports (Ab ye clean hain)
+# 🛠️ Core Engine Imports (Classes core folder se hi aayengi)
 from core.git_manager import GitManager
 from core.scanner import RepositoryScanner
 from core.analyzer import ProjectAnalyzer
 from core.report_builder import ReportBuilder
 from core.cache_manager import cache_mgr
-# .env file load karo
+
+
 load_dotenv()
 
 app = FastAPI(title="README_ENGINE_PRO", version="2.0")
