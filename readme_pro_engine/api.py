@@ -85,56 +85,53 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
 
     try:
         # 🛡️ STEP 1: Security Scan
-        print(f"🛡️ [{task_id}] Running Secret Scanner...")
-        from core.security_scanner import SecretScanner # Ensure this is imported
+        from core.security_scanner import SecretScanner
         security_findings = SecretScanner().scan(target_path)
-        security_alert_text = "\n".join(security_findings) if security_findings else "Safe (No secrets found)."
+        security_alert_text = "\n".join(security_findings) if security_findings else "Safe."
 
         # 📊 STEP 2: Project Analysis
-        print(f"⚙️ [{task_id}] Analyzing Repository Structure...")
         scanner = RepositoryScanner(target_path)
         data = scanner.scan()
         analyzer = ProjectAnalyzer(target_path)
         report = analyzer.analyze(data)
         builder = ReportBuilder(target_path)
         final_report = builder.build(data, report)
+        #
 
-        # 🎨 STEP 3: Automated Mermaid Diagram Generation
-        print(f"🎨 [{task_id}] Generating Architecture Diagram...")
-        full_context_for_diagram = {
-            "stack": report.get("primary_stack"),
-            "dependencies": report.get("key_dependencies")[:15],
-            "structure": list(data.get("structure", []))[:30]
-        }
+        # 🎨 STEP 3: Themed Mermaid Generation
+        print(f"🎨 [{task_id}] Generating THEMED Architecture Diagram...")
         
+        # 💡 PRO TIP: Hum Mermaid ko 'dark' theme aur 'blue' accent colors ke liye force kar rahe hain
         diagram_prompt = f"""
-        Generate a raw Mermaid.js 'graph TD' flowchart based on this project context: {full_context_for_diagram}.
-        RULES:
-        - Output ONLY the raw Mermaid code.
-        - No markdown code blocks (```).
-        - Use alphanumeric labels only.
+        Generate a professional Mermaid.js 'graph TD' flowchart.
+        
+        CONTEXT: {report.get('primary_stack')} | {report.get('key_dependencies')[:10]}
+        
+        STYLE RULES:
+        1. Start with this exact directive for a Dark/Blue theme:
+           %%{{init: {{'theme': 'base', 'themeVariables': {{ 'primaryColor': '#1e40af', 'primaryTextColor': '#fff', 'primaryBorderColor': '#3b82f6', 'lineColor': '#60a5fa', 'secondaryColor': '#111827', 'tertiaryColor': '#1f2937'}}}}}}%%
+        2. Format: A["Label"] --> B["Label"]
+        3. Output ONLY the raw Mermaid code.
         """
-        diagram_res = client.models.generate_content(model=GEMINI_MODEL, contents=diagram_prompt)
+        
+        # ⚠️ NOTE: Model version ko 'gemini-2.0-flash-lite' rakho, 2.5 abhi exist nahi karta.
+        #
+        diagram_res = client.models.generate_content(model="gemini-2.5-flash-lite", contents=diagram_prompt)
         mermaid_code = diagram_res.text.strip() if diagram_res else ""
 
-        # 📝 STEP 4: Final README Generation (The Master Merge)
-        print(f"🚀 [{task_id}] Synthesizing Final README...")
+        # 📝 STEP 4: Master README Synthesis
         final_prompt = f"""
-        Act as a Senior Architect. Update the README for this project.
+        Act as a Senior Architect. Synthesize a README.md.
+        SECURITY FINDINGS: {security_alert_text}
+        MERMAID DIAGRAM: {mermaid_code}
+        PROJECT DATA: {final_report}
         
-        SECURITY FINDINGS:
-        {security_alert_text}
-        
-        ARCHITECTURE METADATA:
-        {final_report}
-        
-        MERMAID ARCHITECTURE CODE:
-        {mermaid_code}
-        
-        INSTRUCTIONS:
-        1. If security findings exist, add a prominent '⚠️ SECURITY ALERT' at the TOP.
-        2. Insert the Mermaid diagram using: ```mermaid\\n{mermaid_code}\\n```
-        3. Follow with professional documentation: Title, Tech Stack (Table), Directory Tree, and Setup Guide.
+        LAYOUT:
+        - Header with Badges
+        - ⚠️ SECURITY ALERT (If applicable)
+        - ## 📊 System Architecture
+          Insert Mermaid code block here.
+        - ## 🚀 Quick Start & Features
         """
         
         gemini_result = client.models.generate_content(model=GEMINI_MODEL, contents=final_prompt)
