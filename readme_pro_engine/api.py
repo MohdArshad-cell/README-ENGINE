@@ -12,6 +12,7 @@ from core.scanner import RepositoryScanner
 from core.analyzer import ProjectAnalyzer
 from core.report_builder import ReportBuilder
 from core.cache_manager import cache_mgr
+from core.security_scanner import SecretScanner
 
 
 load_dotenv()
@@ -62,45 +63,52 @@ def verify_signature(payload_body: bytes, signature_header: str):
 # 🤖 THE BACKGROUND WORKER (The "Ghost" in the Machine)
 # ---------------------------------------------------------
 async def process_webhook_task(repo_url: str, branch: str, installation_id: int):
-    # 1. Unique ID generate karo task ke liye (For better logging)
     task_id = f"{installation_id}_{int(time.time())}"
     print(f"🤖 Universal Bot started | Task: {task_id} | Repo: {repo_url}")
     
-    # 2. Get a Fresh Installation Token
     token = get_installation_token(installation_id)
     if not token:
         print(f"❌ [{task_id}] Could not generate installation token. Aborting.")
         return
 
-    # 3. Authenticated Cloning URL
     auth_repo_url = repo_url.replace("https://", f"https://x-access-token:{token}@")
-    
-    # 4. Initialize GitManager with a Unique Folder
-    # Hum installation_id aur timestamp use kar rahe hain folder name mein 
-    # taki logs dekh kar pata chale kaunsa folder kis user ka hai.
     unique_folder = f"temp_repo_{task_id}"
     git_mgr = GitManager(temp_dir=unique_folder)
     
     target_path = git_mgr.clone_repo(auth_repo_url)
-    
     if not target_path:
         print(f"❌ [{task_id}] Failed to clone repo.")
         return
 
     try:
-        # --- Standard Engine Flow (Using unique target_path) ---
+        # --- 🛡️ NEW FEATURE: SECURITY SCAN ---
+        print(f"🛡️ [{task_id}] Running Secret Scanner...")
+        security_findings = SecretScanner().scan(target_path)
+        security_alert_text = "\n".join(security_findings) if security_findings else "No major security leaks detected."
+
+        # --- Standard Engine Flow ---
         scanner = RepositoryScanner(target_path)
         data = scanner.scan()
-        
         analyzer = ProjectAnalyzer(target_path)
         report = analyzer.analyze(data)
-        
         builder = ReportBuilder(target_path)
         final_report = builder.build(data, report)
 
-        # --- Gemini AI Step ---
-        print(f"🚀 [{task_id}] Calling Gemini for README generation...")
-        prompt = f"Act as a Senior Architect. Update this README with professional diagrams and clear structure: {final_report}"
+        # --- 🧠 GEMINI AI STEP (PROMPT UPDATED) ---
+        print(f"🚀 [{task_id}] Calling Gemini with Security Context...")
+        prompt = f"""
+Act as a Senior Technical Architect and Security Lead. 
+
+SECURITY STATUS:
+{security_alert_text}
+
+PROJECT METADATA:
+{final_report}
+
+STRICT INSTRUCTIONS:
+1. If any security findings exist, you MUST add a "⚠️ SECURITY ALERT" section at the very top of the README in bold red style. List the leaked files and warn the developer to rotate their keys.
+2. After the security section, update the README with a professional structure and diagrams as usual.
+"""
         gemini_result = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         markdown = gemini_result.text if gemini_result else ""
 
@@ -119,11 +127,10 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
             }
             base_url = f"https://api.github.com/repos/{owner}/{repo}"
 
-            # Step A: Get README SHA
+            # Step A & B: Get SHA and Create Branch
             content_res = await http_client.get(f"{base_url}/contents/README.md", headers=headers)
             current_sha = content_res.json().get("sha") if content_res.status_code == 200 else None
 
-            # Step B: Create a unique branch for the PR
             new_branch = f"readme-ai-{task_id}"
             main_ref = await http_client.get(f"{base_url}/git/ref/heads/{branch}", headers=headers)
             main_sha = main_ref.json()["object"]["sha"]
@@ -133,19 +140,25 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
                 "sha": main_sha
             })
 
-            # Step C: Commit the AI-generated Markdown
+            # Step C: Commit File
             encoded_content = base64.b64encode(markdown.encode()).decode()
             await http_client.put(f"{base_url}/contents/README.md", headers=headers, json={
-                "message": "docs: AI-powered architecture update 🤖",
+                "message": "docs: AI Documentation & Security Update 🤖",
                 "content": encoded_content,
                 "branch": new_branch,
                 "sha": current_sha
             })
 
-            # Step D: Open the Pull Request
+            # Step D: Open PR (PR Body Updated with Security Alerts)
+            pr_body = f"## AI Analysis Complete 🤖\nDetected a code push on `{branch}`."
+            if security_findings:
+                pr_body += "\n\n### 🚨 SECURITY WARNING\n**Potential secrets or sensitive files were found in this push.** Please review the security section in the generated README and revoke any leaked credentials immediately."
+            
+            pr_body += "\n\n_Generated by **README-ENGINE-PRO**_"
+
             pr_res = await http_client.post(f"{base_url}/pulls", headers=headers, json={
-                "title": "📝 AI Documentation Update",
-                "body": f"## Why this PR?\nDetected a code push on `{branch}`. I have analyzed the repository structure and updated the documentation.\n\n_Generated by **README-ENGINE-PRO**_",
+                "title": "📝 AI Documentation & Security Update",
+                "body": pr_body,
                 "head": new_branch,
                 "base": branch
             })
@@ -158,7 +171,6 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
     except Exception as e:
         print(f"❌ [{task_id}] Critical Error: {e}")
     finally:
-        # 5. Cleanup the UNIQUE folder
         git_mgr.cleanup()
 
 # ---------------------------------------------------------
