@@ -63,14 +63,17 @@ def verify_signature(payload_body: bytes, signature_header: str):
 # 🤖 THE BACKGROUND WORKER (The "Ghost" in the Machine)
 # ---------------------------------------------------------
 async def process_webhook_task(repo_url: str, branch: str, installation_id: int):
+    # 1. Setup & Logging
     task_id = f"{installation_id}_{int(time.time())}"
     print(f"🤖 Universal Bot started | Task: {task_id} | Repo: {repo_url}")
     
+    # 2. Get Installation Token
     token = get_installation_token(installation_id)
     if not token:
         print(f"❌ [{task_id}] Could not generate installation token. Aborting.")
         return
 
+    # 3. Authenticated Cloning
     auth_repo_url = repo_url.replace("https://", f"https://x-access-token:{token}@")
     unique_folder = f"temp_repo_{task_id}"
     git_mgr = GitManager(temp_dir=unique_folder)
@@ -81,12 +84,14 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
         return
 
     try:
-        # --- 🛡️ NEW FEATURE: SECURITY SCAN ---
+        # 🛡️ STEP 1: Security Scan
         print(f"🛡️ [{task_id}] Running Secret Scanner...")
+        from core.security_scanner import SecretScanner # Ensure this is imported
         security_findings = SecretScanner().scan(target_path)
-        security_alert_text = "\n".join(security_findings) if security_findings else "No major security leaks detected."
+        security_alert_text = "\n".join(security_findings) if security_findings else "Safe (No secrets found)."
 
-        # --- Standard Engine Flow ---
+        # 📊 STEP 2: Project Analysis
+        print(f"⚙️ [{task_id}] Analyzing Repository Structure...")
         scanner = RepositoryScanner(target_path)
         data = scanner.scan()
         analyzer = ProjectAnalyzer(target_path)
@@ -94,29 +99,52 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
         builder = ReportBuilder(target_path)
         final_report = builder.build(data, report)
 
-        # --- 🧠 GEMINI AI STEP (PROMPT UPDATED) ---
-        print(f"🚀 [{task_id}] Calling Gemini with Security Context...")
-        prompt = f"""
-Act as a Senior Technical Architect and Security Lead. 
+        # 🎨 STEP 3: Automated Mermaid Diagram Generation
+        print(f"🎨 [{task_id}] Generating Architecture Diagram...")
+        full_context_for_diagram = {
+            "stack": report.get("primary_stack"),
+            "dependencies": report.get("key_dependencies")[:15],
+            "structure": list(data.get("structure", []))[:30]
+        }
+        
+        diagram_prompt = f"""
+        Generate a raw Mermaid.js 'graph TD' flowchart based on this project context: {full_context_for_diagram}.
+        RULES:
+        - Output ONLY the raw Mermaid code.
+        - No markdown code blocks (```).
+        - Use alphanumeric labels only.
+        """
+        diagram_res = client.models.generate_content(model=GEMINI_MODEL, contents=diagram_prompt)
+        mermaid_code = diagram_res.text.strip() if diagram_res else ""
 
-SECURITY STATUS:
-{security_alert_text}
-
-PROJECT METADATA:
-{final_report}
-
-STRICT INSTRUCTIONS:
-1. If any security findings exist, you MUST add a "⚠️ SECURITY ALERT" section at the very top of the README in bold red style. List the leaked files and warn the developer to rotate their keys.
-2. After the security section, update the README with a professional structure and diagrams as usual.
-"""
-        gemini_result = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+        # 📝 STEP 4: Final README Generation (The Master Merge)
+        print(f"🚀 [{task_id}] Synthesizing Final README...")
+        final_prompt = f"""
+        Act as a Senior Architect. Update the README for this project.
+        
+        SECURITY FINDINGS:
+        {security_alert_text}
+        
+        ARCHITECTURE METADATA:
+        {final_report}
+        
+        MERMAID ARCHITECTURE CODE:
+        {mermaid_code}
+        
+        INSTRUCTIONS:
+        1. If security findings exist, add a prominent '⚠️ SECURITY ALERT' at the TOP.
+        2. Insert the Mermaid diagram using: ```mermaid\\n{mermaid_code}\\n```
+        3. Follow with professional documentation: Title, Tech Stack (Table), Directory Tree, and Setup Guide.
+        """
+        
+        gemini_result = client.models.generate_content(model=GEMINI_MODEL, contents=final_prompt)
         markdown = gemini_result.text if gemini_result else ""
 
         if not markdown: 
             print(f"⚠️ [{task_id}] Gemini returned empty text.")
             return
 
-        # --- 🚀 GITHUB ACTION: CREATE PR ---
+        # 🚀 STEP 5: GITHUB ACTION - CREATE PR
         parts = repo_url.rstrip("/").split("/")
         owner, repo = parts[-2], parts[-1]
         
@@ -125,12 +153,13 @@ STRICT INSTRUCTIONS:
                 "Authorization": f"token {token}",
                 "Accept": "application/vnd.github.v3+json"
             }
-            base_url = f"https://api.github.com/repos/{owner}/{repo}"
+            base_url = f"[https://api.github.com/repos/](https://api.github.com/repos/){owner}/{repo}"
 
-            # Step A & B: Get SHA and Create Branch
+            # Step A: Get README SHA
             content_res = await http_client.get(f"{base_url}/contents/README.md", headers=headers)
             current_sha = content_res.json().get("sha") if content_res.status_code == 200 else None
 
+            # Step B: Create Branch
             new_branch = f"readme-ai-{task_id}"
             main_ref = await http_client.get(f"{base_url}/git/ref/heads/{branch}", headers=headers)
             main_sha = main_ref.json()["object"]["sha"]
@@ -149,11 +178,12 @@ STRICT INSTRUCTIONS:
                 "sha": current_sha
             })
 
-            # Step D: Open PR (PR Body Updated with Security Alerts)
+            # Step D: Open PR
             pr_body = f"## AI Analysis Complete 🤖\nDetected a code push on `{branch}`."
             if security_findings:
-                pr_body += "\n\n### 🚨 SECURITY WARNING\n**Potential secrets or sensitive files were found in this push.** Please review the security section in the generated README and revoke any leaked credentials immediately."
+                pr_body += "\n\n### 🚨 SECURITY WARNING\nPotential secrets were found. Check the README and revoke them ASAP!"
             
+            pr_body += f"\n\n### 📊 Visuals Included\nGenerated a new Architecture Diagram based on the latest push."
             pr_body += "\n\n_Generated by **README-ENGINE-PRO**_"
 
             pr_res = await http_client.post(f"{base_url}/pulls", headers=headers, json={
@@ -164,13 +194,14 @@ STRICT INSTRUCTIONS:
             })
 
             if pr_res.status_code == 201:
-                print(f"🎉 SUCCESS! [{task_id}] PR opened: {pr_res.json().get('html_url')}")
+                print(f"🎉 SUCCESS! PR opened: {pr_res.json().get('html_url')}")
             else:
-                print(f"⚠️ [{task_id}] PR Failed: {pr_res.text}")
+                print(f"⚠️ PR Failed: {pr_res.text}")
 
     except Exception as e:
         print(f"❌ [{task_id}] Critical Error: {e}")
     finally:
+        # 6. Cleanup (Always cleanup unique folders)
         git_mgr.cleanup()
 
 # ---------------------------------------------------------
