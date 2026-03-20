@@ -403,62 +403,69 @@ async def generate_diagram(request: dict):
     if not repo_url:
         raise HTTPException(status_code=400, detail="Repo URL missing")
 
-    git_mgr = GitManager()
+    # 1. Concurrency Fix: Har request ke liye unique folder
+    task_id = f"diag_{uuid.uuid4().hex[:8]}"
+    unique_folder = f"temp_{task_id}"
+    git_mgr = GitManager(temp_dir=unique_folder)
+    
     target_path = git_mgr.clone_repo(repo_url)
+    if not target_path:
+        raise HTTPException(status_code=400, detail="Repository clone failed")
     
     try:
+        # 📊 Deep Analysis for Context
         scanner = RepositoryScanner(target_path)
         data = scanner.scan()
         analyzer = ProjectAnalyzer(target_path)
         report = analyzer.analyze(data)
 
+        # 🚀 Enhanced Context for Gemini
+        # Sirf structure nahi, hum important patterns dhoond rahe hain
         full_context = {
             "stack": report.get("primary_stack"),
+            "structure": list(data.get("structure", []))[:50],
             "frameworks": report.get("detected_frameworks"),
-            "dependencies": report.get("key_dependencies")[:15],
-            "structure": list(data.get("structure", []))[:30]
+            "entry_points": [f for f in data.get("structure", []) if any(x in f.lower() for x in ['main.py', 'api.py', 'app.tsx', 'index.ts'])]
         }
 
-        # 🎯 PROMPT: Logic clear, constraints tight.
+        # 🎯 THE MASTER PROMPT: Logical Layering Force karo
         prompt = f"""
-        Generate a simple Mermaid.js 'graph TD' flowchart for this project.
-        RULES:
-        1. Use only alphanumeric characters and spaces in labels.
-        2. Format: A["Label Text"] --> B["Label Text"]
-        3. No subgraphs, no classDef, no stylized nodes.
-        4. Output ONLY the raw Mermaid code.
-        Context: {full_context}
+        Act as a Principal System Architect. Create a HIGH-LEVEL Architecture Diagram in Mermaid.js (graph TD).
+        
+        CONTEXT: {full_context}
+
+        DESIGN RULES:
+        1. GROUP components into subgraphs: 'Client_Layer', 'API_Gateway', 'Core_Logic', and 'Data_Persistence'.
+        2. Visual Branding Directive (Paste this at the start):
+           %%{{init: {{'theme': 'base', 'themeVariables': {{ 'primaryColor': '#1e40af', 'primaryTextColor': '#fff', 'primaryBorderColor': '#3b82f6', 'lineColor': '#60a5fa', 'secondaryColor': '#111827'}}}}}}%%
+        3. Show the logical data flow from User Request -> Entry Point -> Business Logic -> Storage.
+        4. Use ID["Friendly Name"] format for nodes.
+        5. Output ONLY raw Mermaid code.
         """
 
+        # ⚠️ Model version 2.0-flash-lite hi use karna
         response = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model="gemini-2.5-flash-lite", 
             contents=prompt
         )
+        
         raw_code = response.text.replace("```mermaid", "").replace("```", "").strip()
 
-        # 🚀 BASIC CLEANER: Just ensure quotes are balanced and graph TD is there
+        # 🧹 Robust Cleaning Logic
         import re
-        
-        # Ensure it starts with graph TD
         if not raw_code.startswith("graph TD"):
-            raw_code = "graph TD\n" + raw_code.replace("graph TD", "")
-
-        # Kill any parentheses or slashes that might still leak in
-        raw_code = raw_code.replace("(", " ").replace(")", " ").replace("/", " ")
+            raw_code = "graph TD\n" + raw_code
         
-        # Simple regex to wrap everything in quotes if AI forgot
-        def simple_fix(match):
-            return f'{match.group(1)}["{match.group(2).strip()}"]'
-        
-        raw_code = re.sub(r'(\w+)\[(.*?)\]', simple_fix, raw_code)
+        # Remove characters that break Mermaid rendering
+        raw_code = raw_code.replace("(", " ").replace(")", " ").replace("\\", "/")
 
         return {
             "status": "success",
-            "mermaid_code": raw_code
+            "mermaid_code": raw_code,
+            "metadata": {"stack": report.get("primary_stack")}
         }
     finally:
         git_mgr.cleanup()
-
 # ---------------------------------------------------------
 # 🤖 4. GENERATE AI README (The Main Engine)
 # ---------------------------------------------------------
