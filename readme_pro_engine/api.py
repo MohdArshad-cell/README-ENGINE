@@ -429,19 +429,41 @@ async def generate_diagram(request: dict):
         }
 
         # 🎯 THE MASTER PROMPT: Logical Layering Force karo
+# 🎯 THE ELITE ARCHITECT PROMPT
         prompt = f"""
-        Act as a Principal System Architect. Create a HIGH-LEVEL Architecture Diagram in Mermaid.js (graph TD).
-        
-        CONTEXT: {full_context}
+Act as a Staff Software Engineer & System Architect. Your goal is to generate a professional, high-level Architecture Diagram using Mermaid.js (graph TD).
 
-        DESIGN RULES:
-        1. GROUP components into subgraphs: 'Client_Layer', 'API_Gateway', 'Core_Logic', and 'Data_Persistence'.
-        2. Visual Branding Directive (Paste this at the start):
-           %%{{init: {{'theme': 'base', 'themeVariables': {{ 'primaryColor': '#1e40af', 'primaryTextColor': '#fff', 'primaryBorderColor': '#3b82f6', 'lineColor': '#60a5fa', 'secondaryColor': '#111827'}}}}}}%%
-        3. Show the logical data flow from User Request -> Entry Point -> Business Logic -> Storage.
-        4. Use ID["Friendly Name"] format for nodes.
-        5. Output ONLY raw Mermaid code.
-        """
+--- PROJECT CONTEXT ---
+Stack: {full_context['stack']}
+Frameworks: {full_context['frameworks']}
+Key Entry Points: {full_context['entry_points']}
+File Structure Snippet: {full_context['structure']}
+
+--- DESIGN PHILOSOPHY ---
+1. LAYERING: Organize the diagram into clear logical subgraphs:
+   - 'User_Interface' (Frontend components/pages)
+   - 'API_Gateway_Routes' (Controllers, Endpoints, Request Handling)
+   - 'Business_Logic_Services' (Core functions, Analyzers, Managers)
+   - 'Data_Infrastructure' (Databases, Cache, External APIs, File Systems)
+
+2. FLOW LOGIC: Use directional arrows (-->) to show how a user request flows from the UI through the API to the Logic layer and finally to Data/Cache.
+
+3. VISUAL STYLE: Use the following branding directive at the very top:
+   %%{{init: {{'theme': 'base', 'themeVariables': {{ 
+     'primaryColor': '#1e40af', 
+     'primaryTextColor': '#fff', 
+     'primaryBorderColor': '#3b82f6', 
+     'lineColor': '#60a5fa', 
+     'secondaryColor': '#111827',
+     'tertiaryColor': '#020203'
+   }}}}}}%%
+
+--- CONSTRAINTS ---
+- Use ONLY Alphanumeric characters and spaces inside quotes for labels, e.g., ID["Display Name"].
+- DO NOT use special characters like '(', ')', '/', or '\\' inside labels as they crash Mermaid.
+- Output ONLY the raw Mermaid code. No markdown formatting.
+- If a layer is missing in the context, do not hallucinate; only map what is visible.
+"""
 
         # ⚠️ Model version 2.0-flash-lite hi use karna
         response = client.models.generate_content(
