@@ -403,7 +403,7 @@ async def generate_diagram(request: dict):
     if not repo_url:
         raise HTTPException(status_code=400, detail="Repo URL missing")
 
-    # 1. Concurrency Fix: Har request ke liye unique folder
+    # 1. Unique ID for Concurrency (Safe Workspace)
     task_id = f"diag_{uuid.uuid4().hex[:8]}"
     unique_folder = f"temp_{task_id}"
     git_mgr = GitManager(temp_dir=unique_folder)
@@ -413,59 +413,54 @@ async def generate_diagram(request: dict):
         raise HTTPException(status_code=400, detail="Repository clone failed")
     
     try:
-        # 📊 Deep Analysis for Context
+        # 🛡️ STEP 1: Deep Intelligence Gathering
+        print(f"📊 [{task_id}] Deep Scanning for Architecture...")
         scanner = RepositoryScanner(target_path)
-        data = scanner.scan()
+        scanned_data = scanner.scan() # Now with Signatures & Tree
+        
         analyzer = ProjectAnalyzer(target_path)
-        report = analyzer.analyze(data)
+        report = analyzer.analyze(scanned_data) # Now with Categorized Module Map
+        
+        builder = ReportBuilder(target_path)
+        final_report = builder.build(scanned_data, report) # High-Density Context
 
-        # 🚀 Enhanced Context for Gemini
-        # Sirf structure nahi, hum important patterns dhoond rahe hain
-        full_context = {
-            "stack": report.get("primary_stack"),
-            "structure": list(data.get("structure", []))[:50],
-            "frameworks": report.get("detected_frameworks"),
-            "entry_points": [f for f in data.get("structure", []) if any(x in f.lower() for x in ['main.py', 'api.py', 'app.tsx', 'index.ts'])]
-        }
-
-        # 🎯 THE MASTER PROMPT: Logical Layering Force karo
-# 🎯 THE ELITE ARCHITECT PROMPT
+        # 🎨 STEP 2: The "Architect" Prompt
+        # Ab hum Gemini ko sirf file list nahi, balki functional signatures de rahe hain
         prompt = f"""
-Act as a Staff Software Engineer & System Architect. Your goal is to generate a professional, high-level Architecture Diagram using Mermaid.js (graph TD).
+Act as a Principal System Architect. Generate a high-level, professional Mermaid.js 'graph TD' diagram.
 
---- PROJECT CONTEXT ---
-Stack: {full_context['stack']}
-Frameworks: {full_context['frameworks']}
-Key Entry Points: {full_context['entry_points']}
-File Structure Snippet: {full_context['structure']}
+--- SYSTEM CONTEXT ---
+Stack: {final_report['tech_stack']['primary']}
+Frameworks: {final_report['tech_stack']['frameworks']}
+Module Map: {final_report['architecture_map']}
+Deep Signatures: {final_report['deep_analysis']}
 
---- DESIGN PHILOSOPHY ---
-1. LAYERING: Organize the diagram into clear logical subgraphs:
-   - 'User_Interface' (Frontend components/pages)
-   - 'API_Gateway_Routes' (Controllers, Endpoints, Request Handling)
-   - 'Business_Logic_Services' (Core functions, Analyzers, Managers)
-   - 'Data_Infrastructure' (Databases, Cache, External APIs, File Systems)
+--- ARCHITECTURAL RULES ---
+1. LAYERING: You MUST use 'subgraph' to group components:
+   - 'User_Interface' (Frontend Entry points)
+   - 'API_Gateway' (Endpoints/Routes)
+   - 'Business_Logic' (Services/Managers)
+   - 'Data_Store' (Models/DB Logic)
 
-2. FLOW LOGIC: Use directional arrows (-->) to show how a user request flows from the UI through the API to the Logic layer and finally to Data/Cache.
+2. COMPONENT FLOW: Show how data moves. 
+   Example: UI --"Request"--> API --"Process"--> Service --"Query"--> DB.
 
-3. VISUAL STYLE: Use the following branding directive at the very top:
+3. VISUAL THEME (Blue/Dark Mode):
    %%{{init: {{'theme': 'base', 'themeVariables': {{ 
      'primaryColor': '#1e40af', 
      'primaryTextColor': '#fff', 
      'primaryBorderColor': '#3b82f6', 
      'lineColor': '#60a5fa', 
-     'secondaryColor': '#111827',
-     'tertiaryColor': '#020203'
+     'secondaryColor': '#111827'
    }}}}}}%%
 
---- CONSTRAINTS ---
-- Use ONLY Alphanumeric characters and spaces inside quotes for labels, e.g., ID["Display Name"].
-- DO NOT use special characters like '(', ')', '/', or '\\' inside labels as they crash Mermaid.
-- Output ONLY the raw Mermaid code. No markdown formatting.
-- If a layer is missing in the context, do not hallucinate; only map what is visible.
+4. CONSTRAINTS:
+   - Use ONLY ID["Display Name"] format.
+   - DO NOT use characters like ( ) / . [ ] inside quotes.
+   - Output ONLY raw Mermaid code.
 """
 
-        # ⚠️ Model version 2.0-flash-lite hi use karna
+        # ⚠️ Model version fixed
         response = client.models.generate_content(
             model="gemini-2.5-flash-lite", 
             contents=prompt
@@ -473,18 +468,23 @@ File Structure Snippet: {full_context['structure']}
         
         raw_code = response.text.replace("```mermaid", "").replace("```", "").strip()
 
-        # 🧹 Robust Cleaning Logic
+        # 🧹 STEP 3: Robust Cleaning (Mermaid is very picky)
         import re
         if not raw_code.startswith("graph TD"):
             raw_code = "graph TD\n" + raw_code
         
-        # Remove characters that break Mermaid rendering
+        # Remove dots and brackets from labels that AI might leak
         raw_code = raw_code.replace("(", " ").replace(")", " ").replace("\\", "/")
+        # Ensure no spaces in IDs (Mermaid requirement)
+        raw_code = re.sub(r'(\w+)\s+(\w+)\s*\[', r'\1_\2[', raw_code)
 
         return {
             "status": "success",
             "mermaid_code": raw_code,
-            "metadata": {"stack": report.get("primary_stack")}
+            "metadata": {
+                "complexity": report.get("project_complexity"),
+                "stack": report.get("primary_stack")
+            }
         }
     finally:
         git_mgr.cleanup()
