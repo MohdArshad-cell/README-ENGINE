@@ -493,156 +493,123 @@ File Structure Snippet: {full_context['structure']}
 # ---------------------------------------------------------
 @app.post("/generate-readme")
 async def generate_readme(request: RepoRequest):
-
-    # ✅ CACHE CHECK
+    # 1. CACHE CHECK
     try:
         cached_result = cache_mgr.get_cached_readme(request.url)
         if cached_result:
             print(f"🎯 Cache Hit → {request.url}")
             return cached_result
-    except Exception as cache_read_err:
-        print(f"⚠️ Cache read failed: {cache_read_err}")
+    except Exception as e:
+        print(f"⚠️ Cache read failed: {e}")
 
-    # ✅ CACHE MISS
-    print(f"⚡ Cache Miss → {request.url}")
-
-    git_mgr = GitManager()
+    # 2. CLONE & SETUP
+    # Unique folder logic for concurrency safety
+    task_id = f"manual_{uuid.uuid4().hex[:8]}"
+    git_mgr = GitManager(temp_dir=f"temp_{task_id}")
     target_path = git_mgr.clone_repo(request.url)
 
     if not target_path:
-        raise HTTPException(
-            status_code=400,
-            detail="Repository clone failed"
-        )
+        raise HTTPException(status_code=400, detail="Repository clone failed")
 
     try:
-        # --- CORE ENGINE EXECUTION ---
-        print("🚀 Step 1: Scanning...")
+        # 🛡️ STEP 1: Deep Scanning & Security
         scanner = RepositoryScanner(target_path)
-        scanned_data = scanner.scan()
+        scanned_data = scanner.scan() # Ab isme Tree aur Signatures hain
+        
+        from core.security_scanner import SecretScanner
+        security_findings = SecretScanner().scan(target_path)
+        security_alert = "\n".join(security_findings) if security_findings else "No leaks found."
 
-        print("🚀 Step 2: Analyzing...")
+        # 📊 STEP 2: Architecture Analysis
         analyzer = ProjectAnalyzer(target_path)
-        analysis_report = analyzer.analyze(scanned_data)
+        analysis_report = analyzer.analyze(scanned_data) # Ab isme Module Map hai
 
-        print("🚀 Step 3: Building Report...")
+        # 🏗️ STEP 3: Master Report Building
         builder = ReportBuilder(target_path)
         final_report = builder.build(scanned_data, analysis_report)
 
-        # 3. 🤖 CALLING GEMINI (This creates the 'response' variable)
-        print("🚀 Step 4: Generating README with Gemini...")
+        # 🤖 STEP 4: GENERATE WITH "GOD-TIER" PROMPT
+        print("🚀 Calling Gemini for Deep Documentation...")
         
-        prompt = f"""
-You are an Elite Technical Documentation Architect. Your mission is to transform raw JSON metadata into a world-class README.md that screams engineering excellence.
+        # Mermaid code generator logic (internal call for better structure)
+        mermaid_prompt = f"Generate only a Mermaid.js 'graph TD' code for this architecture: {analysis_report.get('module_map')}"
+        mermaid_res = client.models.generate_content(model=GEMINI_MODEL, contents=mermaid_prompt)
+        mermaid_code = mermaid_res.text.strip() if mermaid_res else ""
 
-PROJECT DATA:
-{final_report}
+        master_prompt = f"""
+You are a Principal Software Architect at a FAANG company. Your task is to document this repository with extreme precision and engineering depth. 
 
-STRICT ARCHITECTURE & FORMATTING RULES:
+--- SYSTEM METADATA ---
+Report: {final_report}
+Security Status: {security_alert}
+Mermaid Architecture: {mermaid_code}
 
-1. HEADER & BADGES (Visual Dominance):
-   - Start with a clean H1 title.
-   - ADD a professional Banner Placeholder: ![Banner](https://socialify.git.ci/{{repo_path}}/network?theme=Dark) (Replace {{repo_path}} with the actual repo path if available, else omit).
-   - BADGES: Generate high-quality shields.io badges for every 'key_dependency'.
-   - !! CRITICAL !!: All badges MUST be in a single continuous block. Separated ONLY by a space. 
-   - DO NOT use newlines, lists, or tables for badges. They must flow as a single horizontal line.
+--- MANDATORY README STRUCTURE ---
 
-2. EXECUTIVE SUMMARY:
-   - Paragraph 1: High-level technical objective.
-   - Paragraph 2: Business/Studio impact (use 'extracted_content' for specific achievements like '50+ projects').
-   - Use bold text for key metrics.
+1. PROJECT TITAN (H1): 
+   - A bold title followed by professional badges for the tech stack.
+   - Banner: ![Banner](https://socialify.git.ci/{request.url.split('/')[-2]}/{request.url.split('/')[-1]}/network?theme=Dark)
 
-3. ARCHITECTURE & TECH STACK:
-   - Create a clean GitHub Flavored Markdown (GFM) table.
-   - Column Headers: | Technology | Version | Key Responsibility |
-   - Alignment: | :--- | :--- | :--- |
-   - Data Source: 'key_dependencies' and 'primary_stack'. Ensure NO broken pipes or extra dashes.
+2. ⚠️ SECURITY DISCLOSURE:
+   - IF Security Status is not 'Safe', create a HIGH-PRIORITY alert box listing leaked files and mandatory rotation steps.
 
-4. SYSTEM SIGNATURES (The "Deep Scan" Results):
-   - Analyze detected 'signatures' (e.g., Magnetic components, handleMouseMove).
-   - Explain the technical 'WHY' behind them. (Example: "Framer Motion: Orchestrating complex layout transitions for immersive UX").
+3. 🏛️ ARCHITECTURAL BLUEPRINT:
+   - Provide a high-level summary of the system design (e.g., Microservices, Monolith, MVC).
+   - INSERT the provided Mermaid diagram in a code block: ```mermaid\\n{mermaid_code}\\n```.
+   - Explain the "Data Journey": How a request flows from the API Gateway to the Business Logic and finally to the Data Layer.
 
-5. DIRECTORY BLUEPRINT:
-   - Provide an ASCII tree. 
-   - Add inline comments (#) explaining the 'Role' of major directories based on common patterns (e.g., src/app -> App Router Logic).
+4. 🧬 DEEP MODULE INTELLIGENCE:
+   - Use the 'Deep Analysis' data to explain the core modules.
+   - DO NOT just list files. Explain the "Signatures" (Functions/Classes) found. 
+   - Example: "`auth_manager.py` orchestrates JWT validation and session persistence using the `validate_token` signature."
 
-6. DEPLOYMENT & OPERATION:
-   - Detect toolchain (npm/yarn/pnpm/mvn) and provide copy-pasteable commands.
-   - Sections: Prerequisites, Installation, Local Development, Production Build.
+5. 🌳 DIRECTORY HIERARCHY:
+   - Provide the ASCII tree from the metadata. 
+   - Add concise inline comments for the role of each primary directory.
 
-7. ACKNOWLEDGEMENTS & CONTACT:
-   - Format contact details with professional icons (📧 Email, 📱 WhatsApp, 📍 Location).
-   - Add a 'License' section (default to MIT unless specified).
+6. ⚙️ INFRASTRUCTURE & OPS:
+   - Detect and list setup commands (npm, pip, mvn, etc.)
+   - Include sections for: Environment Variables (.env), Local Development, and Production Build.
 
-STRICT FORMATTING RULES:
-- VERTICAL SPACING: Use exactly TWO newlines (\\n\\n) between every section, heading, and paragraph.
-- HEADINGS: Use proper Markdown headers (##, ###) instead of just bolding text. Never put a heading on the same line as the content.
-- LISTS: Every bullet point MUST start on a new line.
-- CODE BLOCKS: All terminal commands or file paths MUST be wrapped in triple backticks (```bash ... ```).
-- NO CLUTTER: Ensure there is a clear visual break before and after every table or list.
+7. 🛠️ TECH STACK TABLE:
+   - A clean GFM table: | Component | Technology | Role |
 
-TONE & QUALITY GATE:
-- Use active, technical language (e.g., "Leverages", "Orchestrates", "Implements").
-- If a section has no data, skip it—DO NOT hallucinate.
-- Ensure all Markdown syntax is strictly GFM compliant.
+--- FORMATTING & TONE RULES ---
+- Use "Engineer-to-Engineer" tone: Technical, precise, and devoid of fluff.
+- Use exactly TWO newlines between sections for maximum scannability.
+- All code, file paths, and signatures MUST be in backticks.
+- NEVER hallucinate a feature. If the data isn't there, omit the section.
 """
 
-        try:
-            # ✅ CORRECT NEW SDK CALL
-            gemini_result = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt
-            )
-        except Exception as llm_call_err:
-            print("❌ Gemini call crashed:", llm_call_err)
-            raise HTTPException(status_code=500, detail="LLM generation crashed")
+        gemini_result = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=master_prompt
+        )
+        
+        markdown = gemini_result.text.strip() if gemini_result else ""
 
-        # In the new SDK, 'text' is a direct attribute
-        markdown = gemini_result.text if gemini_result else None
+        if not markdown:
+            raise HTTPException(status_code=500, detail="Gemini failed to generate content")
 
-        if markdown is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Gemini response missing text"
-            )
-
-        markdown = markdown.strip()
-
-        if markdown == "":
-            raise HTTPException(
-                status_code=500,
-                detail="Generated README empty"
-            )
-
-        # ===== FINAL RESPONSE =====
-
-        final_response = {
+        # 5. RESPONSE & CACHE
+        response_data = {
             "status": "success",
             "markdown": markdown,
             "metadata": analysis_report
         }
-
-        # ===== CACHE WRITE SAFE =====
-
+        
         try:
-            cache_mgr.set_cached_readme(request.url, final_response)
-            print("✅ Cache stored")
-        except Exception as cache_write_err:
-            print("⚠️ Cache write failed:", cache_write_err)
+            cache_mgr.set_cached_readme(request.url, response_data)
+        except:
+            pass
 
-        return final_response
+        return response_data
 
-    except Exception as engine_err:
-        print("❌ ENGINE FAILURE:", engine_err)
-        raise HTTPException(
-            status_code=500,
-            detail=str(engine_err)
-        )
-
+    except Exception as e:
+        print(f"❌ ENGINE CRASH: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
-        print("🧹 Cleanup workspace")
         git_mgr.cleanup()
-
 
 if __name__ == "__main__":
     import uvicorn
