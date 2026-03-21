@@ -1,57 +1,78 @@
 import os
 import sys
+import re # 👈 Patterns dhoondne ke liye
 
-# Hum config ko import kar rahe hain. 
-# Kyuki scanner.py 'core' folder ke andar hai, hume path handle karna padega.
+# Config imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import IGNORE_DIRS, SUPPORTED_EXTENSIONS, TECH_STACK_FILES
 
 class RepositoryScanner:
     def __init__(self, root_path):
-        self.root_path = os.path.abspath(root_path)
+        self.root_path = os.path.abspath(root_path) #
+
+    def extract_metadata(self, file_path):
+        """
+        File ke andar ghus kar signatures (functions/classes) nikalta hai.
+        Poori file read nahi karega (memory bachane ke liye), sirf top 150 lines.
+        """
+        signatures = []
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.readlines()[:150] 
+                for line in content:
+                    line = line.strip()
+                    # Python, JS, TS, Java ke common patterns
+                    if line.startswith(("class ", "def ", "async def ", "export const ", "public class ", "private void ")):
+                        # Clean signature (e.g., 'def process_data(res):' -> 'process_data')
+                        clean_sig = re.sub(r'\(.*', '', line).replace('class ', '').replace('def ', '').replace('async ', '').strip()
+                        signatures.append(clean_sig)
+        except Exception as e:
+            print(f"⚠️ Metadata extraction failed for {file_path}: {e}")
+        return signatures
+
+    def generate_tree(self):
+        """AI ko folder structure samajhne ke liye ek visual tree deta hai."""
+        tree = []
+        for root, dirs, files in os.walk(self.root_path):
+            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS] #
+            level = root.replace(self.root_path, '').count(os.sep)
+            indent = ' ' * 4 * level
+            tree.append(f"{indent}{os.path.basename(root)}/")
+            for f in files:
+                tree.append(f"{indent}    {f}")
+        return "\n".join(tree)
 
     def scan(self):
         """
-        Repo ko scan karta hai aur do lists return karta hai:
-        1. config_files: Tech stack pehchanne ke liye (pom.xml, etc.)
-        2. code_files: Logic analyze karne ke liye (.java, .py, etc.)
+        Deep Scan logic:
+        1. Config files (pom.xml, package.json)
+        2. Code files with internal signatures (Deep Intelligence)
+        3. Visual Tree
         """
-        filtered_files = {
+        results = {
             "config_files": [],
-            "code_files": []
+            "code_modules": [],
+            "directory_tree": self.generate_tree()
         }
 
         for root, dirs, files in os.walk(self.root_path):
-            # 1. Junk folders ko modify kar rahe hain taaki os.walk unme na ghuse
-            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS] #
 
             for file in files:
-                # File ka relative path nikal rahe hain (AI ko dikhane ke liye)
-                rel_path = os.path.relpath(os.path.join(root, file), self.root_path)
+                rel_path = os.path.relpath(os.path.join(root, file), self.root_path) #
 
-                # 2. Check agar ye koi Tech Stack/Config file hai
-                if file in TECH_STACK_FILES:
-                    filtered_files["config_files"].append({
-                        "name": file,
-                        "path": rel_path
-                    })
+                # 1. Tech Stack Files
+                if file in TECH_STACK_FILES: #
+                    results["config_files"].append({"name": file, "path": rel_path})
 
-                # 3. Check agar ye koi Supported Code file hai
+                # 2. Deep Code Scan
                 file_ext = os.path.splitext(file)[1]
-                if file_ext in SUPPORTED_EXTENSIONS:
-                    filtered_files["code_files"].append({
+                if file_ext in SUPPORTED_EXTENSIONS: #
+                    full_path = os.path.join(root, file)
+                    results["code_modules"].append({
                         "name": file,
                         "path": rel_path,
-                        "extension": file_ext
+                        "signatures": self.extract_metadata(full_path) # 👈 Deep Scan yahan ho raha hai
                     })
 
-        return filtered_files
-
-# Testing logic (sirf dekhne ke liye ki kaam kar raha hai ya nahi)
-if __name__ == "__main__":
-    # Yahan apne kisi bhi project ka path daal kar test kar sakte ho
-    test_path = "." 
-    scanner = RepositoryScanner(test_path)
-    results = scanner.scan()
-    print(f"Found {len(results['config_files'])} Config files.")
-    print(f"Found {len(results['code_files'])} Code files.")
+        return results
