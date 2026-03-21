@@ -4,116 +4,103 @@ import ast
 
 class CodeParser:
     def __init__(self):
-        # 1. Java/C++/C# style methods regex
-        self.generic_method_regex = re.compile(r'(public|private|protected|static|\s) +[\w\<\>\[\]]+\s+(\w+) *\([^\)]*\) *\{?')
+        # 1. Enhanced JS/TS Regex (Handles exports and modern syntax better)
+        self.js_func_regex = re.compile(
+            r'(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:\([^)]*\)|[\w]+)\s*=>|'  # Arrow functions
+            r'(?:export\s+)?function\s+(\w+)\s*\(|'                                    # Standard functions
+            r'(?:export\s+)?class\s+(\w+)'                                             # Classes
+        )
         
-        # 2. Modern JS/TS/React Functional Components & Arrow Functions
-        # Pakadta hai: const MyComponent = () => ..., function MyFunc() ...
-        self.js_func_regex = re.compile(r'(?:const|let|var)\s+(\w+)\s*=\s*(?:\([^)]*\)|[\w]+)\s*=>|function\s+(\w+)\s*\(')
+        # 2. Import detection (AI ko batane ke liye ki kaunse external tools use ho rahe hain)
+        self.import_regex = re.compile(r'(?:import|from)\s+[\'"](.+?)[\'"]|import\s+(.+?)\s+from')
         
-        # 3. Class detection for most languages
+        # 3. Generic logic for Java/C#
         self.generic_class_regex = re.compile(r'class\s+(\w+)')
-        
-        # 4. API Endpoints detection (Spring Boot, Express, etc.)
-        self.endpoint_regex = re.compile(r'@(Get|Post|Put|Delete|Patch)Mapping\(.*?"(.*?)"|app\.(get|post|put|delete)\(.*?"(.*?)"')
+        self.generic_method_regex = re.compile(r'(public|private|protected|static|\s) +[\w\<\>\[\]]+\s+(\w+) *\([^\)]*\)')
 
     def parse(self, file_path, extension, is_content_file=False):
-        """
-        Main entry point for parsing. 
-        is_content_file=True hone par ye file ke andar ka asali data (projects, lists) bhi nikalega.
-        """
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             
-            # Deep Extraction: Agar file 'constants' ya 'data' wali hai toh content scan karo
-            deep_data = {}
-            if is_content_file:
-                deep_data = self._extract_deep_content(content)
-
-            # Language specific parsing
-            if extension == '.py':
-                res = self._parse_python(content)
-            elif extension in ['.js', '.jsx', '.ts', '.tsx']:
-                res = self._parse_javascript(content)
-            else:
-                res = self._parse_generic(content)
+            res = {"classes": [], "functions": [], "imports": [], "endpoints": []}
             
-            # Agar deep data mila hai toh use result me merge karo
-            if deep_data:
-                res["extracted_content"] = deep_data
+            # Deep Extraction (Atma Extraction)
+            if is_content_file:
+                res["extracted_content"] = self._extract_deep_content(content)
+
+            # Language Specific Logic
+            if extension == '.py':
+                res.update(self._parse_python(content))
+            elif extension in ['.js', '.jsx', '.ts', '.tsx']:
+                res.update(self._parse_javascript(content))
+            else:
+                res.update(self._parse_generic(content))
+            
+            # Common: Extract Imports (Har language ke liye kaam aayega)
+            res["imports"] = list(set(re.findall(r'(?:import|from)\s+[\'"](.+?)[\'"]', content)))[:10]
             
             return res
         except Exception as e:
             return {"error": str(e)}
 
+    def _parse_python(self, content):
+        """Python AST logic with Scope Awareness (No more double counting)."""
+        try:
+            tree = ast.parse(content)
+            summary = {"classes": [], "functions": []}
+            
+            for node in tree.body: # Sirf top-level nodes dekho
+                if isinstance(node, ast.ClassDef):
+                    methods = [m.name for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
+                    summary["classes"].append({"name": node.name, "methods": methods})
+                elif isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+                    summary["functions"].append(node.name)
+            return summary
+        except:
+            return {"functions": [], "classes": []}
+
+    def _parse_javascript(self, content):
+        """React components aur exports ke liye better logic."""
+        summary = {"components_or_functions": [], "classes": []}
+        
+        matches = self.js_func_regex.findall(content)
+        for m in matches:
+            # Matches tuple: (arrow_func, std_func, class_name)
+            name = next((name for name in m if name), None)
+            if name:
+                if "export class" in content or f"class {name}" in content:
+                    summary["classes"].append(name)
+                else:
+                    summary["components_or_functions"].append(name)
+        
+        # Clean duplicates
+        summary["components_or_functions"] = list(set(summary["components_or_functions"]))
+        summary["classes"] = list(set(summary["classes"]))
+        return summary
+
     def _extract_deep_content(self, content):
-        """
-        Exported objects, arrays aur constants se actual text (Atma) nikalta hai.
-        """
+        """Object/Array extraction logic (Cleansed for AI tokens)."""
         content_map = {}
-        # Regex to find exported constants/objects like: export const projects = [...]
+        # Regex to catch: export const DATA = [...] or export default [...]
         patterns = [
-            r'export\s+const\s+(\w+)\s*=\s*(\[[\s\S]*?\]|\{[\s\S]*?\});',
-            r'export\s+default\s+(\[[\s\S]*?\]|\{[\s\S]*?\});'
+            r'export\s+(?:const|let|var)\s+(\w+)\s*=\s*([\[\{][\s\S]*?[\]\}]);',
+            r'export\s+default\s+([\[\{][\s\S]*?[\]\}]);'
         ]
         
         for pattern in patterns:
             matches = re.findall(pattern, content)
             for match in matches:
-                # Key-Value pair set karna (Project list ya Config object)
                 key = match[0] if isinstance(match, tuple) and match[0] else "default_export"
-                value = match[1] if isinstance(match, tuple) else match[0]
-                
-                # Cleaning: Faltu spaces nikaalna taaki AI ko kam tokens bhejne padein
-                clean_value = re.sub(r'\s+', ' ', value).strip()
-                content_map[key] = clean_value[:2000] # 2000 chars limit per object
+                val = match[1] if isinstance(match, tuple) else match[0]
+                # Token reduction: Remove extra spaces and limit size
+                clean_val = re.sub(r'\s+', ' ', val).strip()
+                content_map[key] = clean_val[:1500] 
 
         return content_map
 
-    def _parse_javascript(self, content):
-        """React aur Modern JS ke liye logic."""
-        summary = {"components_or_functions": [], "classes": [], "endpoints": []}
-        
-        # Functions/Components extraction
-        matches = self.js_func_regex.findall(content)
-        for m in matches:
-            func_name = m[0] if m[0] else m[1]
-            if func_name and func_name not in summary["components_or_functions"]:
-                summary["components_or_functions"].append(func_name)
-        
-        # Classes extraction
-        summary["classes"] = list(set(self.generic_class_regex.findall(content)))
-        
-        # Endpoint extraction
-        endpoints = self.endpoint_regex.findall(content)
-        for ep in endpoints:
-            clean_ep = next((item for item in ep if item.startswith('/')), None)
-            if clean_ep: summary["endpoints"].append(clean_ep)
-            
-        return summary
-
-    def _parse_python(self, content):
-        """Python files ke liye AST (Abstract Syntax Tree) logic."""
-        try:
-            tree = ast.parse(content)
-            summary = {"classes": [], "functions": []}
-            
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    methods = [m.name for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
-                    summary["classes"].append({"name": node.name, "methods": methods})
-                elif isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
-                    # Check if it's a top-level function
-                    summary["functions"].append(node.name)
-            return summary
-        except:
-            return {"error": "Failed to parse Python AST"}
-
     def _parse_generic(self, content):
-        """Java, C++, etc. ke liye default Regex logic."""
         return {
             "classes": list(set(self.generic_class_regex.findall(content))),
-            "methods": list(set([m[1] for m in self.generic_method_regex.findall(content)])),
-            "endpoints": []
+            "methods": list(set([m[1] for m in self.generic_method_regex.findall(content)]))
         }
