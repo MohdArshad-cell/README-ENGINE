@@ -3,39 +3,52 @@ import os
 
 class SecretScanner:
     def __init__(self):
-        # 🔍 Common patterns for leaked secrets
+        # 🔍 Expanded patterns for professional-grade scanning
         self.patterns = {
             "AWS Access Key": r"AKIA[0-9A-Z]{16}",
-            "GitHub Personal Access Token": r"ghp_[a-zA-Z0-9]{36}",
+            "GitHub Token": r"ghp_[a-zA-Z0-9]{36}",
             "Google API Key": r"AIza[0-9A-Za-z\\-_]{35}",
-            "Generic Password/Secret": r"(?i)(password|secret|passwd|api_key|auth_token)\s*[:=]\s*['\"][0-9a-zA-Z]{8,}['\"]",
+            "Stripe API Key": r"sk_live_[0-9a-zA-Z]{24}",
+            "Slack Webhook": r"https://hooks.slack.com/services/T[a-zA-Z0-9_]+/B[a-zA-Z0-9_]+/[a-zA-Z0-9_]+",
+            "Private Key": r"-----BEGIN (?:RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----",
+            "Generic Secret": r"(?i)(api_key|secret|passwd|password|auth_token|access_token)\s*[:=]\s*['\"][0-9a-zA-Z]{12,}['\"]",
             "Firebase Config": r"apiKey:\s*['\"].*['\"]",
         }
-        # 📂 Files to ignore (e.g., binaries, images)
-        self.ignore_exts = ('.png', '.jpg', '.jpeg', '.gif', '.exe', '.pyc', '.pdf')
+        
+        # 📂 Performance Fix: In directories ko scan karna matlab waqt ki barbadi
+        self.ignore_dirs = {'.git', 'node_modules', 'venv', '__pycache__', 'dist', 'build', '.next'}
+        self.ignore_exts = ('.png', '.jpg', '.jpeg', '.gif', '.exe', '.pyc', '.pdf', '.svg', '.ico', '.woff', '.woff2')
 
     def scan(self, repo_path):
         findings = []
+        print(f"🛡️ Security scan initiated for: {repo_path}")
+
         for root, dirs, files in os.walk(repo_path):
-            # Skip .git directory
-            if '.git' in dirs:
-                dirs.remove('.git')
+            # 🚀 Speed Optimization: Blocklist directories ko ignore karo
+            dirs[:] = [d for d in dirs if d not in self.ignore_dirs]
             
             for file in files:
-                # 1. Check for sensitive files (e.g., .env)
-                if file.endswith(".env") or file == "config.json" or file == "credentials.json":
-                    findings.append(f"⚠️ Sensitive file exposed: `{file}`")
-                
-                # 2. Scan inside text files for patterns
+                # 1. High-Value File Check (Direct hits)
+                if file in [".env", "credentials.json", "service-account.json", "id_rsa"]:
+                    findings.append(f"⚠️ CRITICAL: Sensitive file exposed: `{file}`")
+                    continue # File name hi alert hai, andar scan ki zaroorat nahi
+
+                # 2. Content Scan (Memory-Efficient)
                 if not file.endswith(self.ignore_exts):
                     file_path = os.path.join(root, file)
-                    relative_path = os.path.relpath(file_path, repo_path)
+                    rel_path = os.path.relpath(file_path, repo_path)
+                    
                     try:
+                        # Poori file memory mein load nahi karenge agar bohot badi ho
                         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
+                            # Sirf pehli 1000 lines scan karo (Secrets usually top par hote hain)
+                            # Ya poori file scan karo agar file choti hai
+                            content = f.read(1000000) # Max 1MB scan per file
+                            
                             for name, pattern in self.patterns.items():
                                 if re.search(pattern, content):
-                                    findings.append(f"🚨 Potential {name} found in `{relative_path}`")
-                    except Exception as e:
+                                    findings.append(f"🚨 Potential {name} found in `{rel_path}`")
+                    except Exception:
                         continue
+        
         return findings
