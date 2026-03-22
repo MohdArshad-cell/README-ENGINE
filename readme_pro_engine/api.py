@@ -62,7 +62,7 @@ def verify_signature(payload_body: bytes, signature_header: str):
 # ---------------------------------------------------------
 # 🤖 THE BACKGROUND WORKER (The "Ghost" in the Machine)
 # ---------------------------------------------------------
-async def process_webhook_task(repo_url: str, branch: str, installation_id: int):
+async def process_webhook_task(repo_url: str, branch: str, installation_id: int, before_sha: str = None, after_sha: str = None):
     # 1. Setup & Logging
     task_id = f"{installation_id}_{int(time.time())}"
     print(f"🤖 Universal Bot started | Task: {task_id} | Repo: {repo_url}")
@@ -84,110 +84,99 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
         return
 
     try:
-        # 🛡️ STEP 1: Security Scan
+        # ⚡ STEP 1: AI Changelog (Deep Diff)
+        latest_pulse = "Fresh analysis of the repository."
+        if before_sha and after_sha and before_sha != "0000000000000000000000000000000000000000":
+            print(f"🔍 [{task_id}] Analyzing Code Diff (Changelog)...")
+            diff_data = git_mgr.get_diff(before_sha, after_sha)
+            if diff_data:
+                diff_prompt = f"""
+                Summarize these git changes into a 2-line technical 'Pulse' update.
+                Focus on the IMPACT (e.g., 'Refactored auth logic for speed' or 'Added Mermaid diagram support').
+                DIFF STATS: {diff_data['stat']}
+                DIFF SNIPPET: {diff_data['content']}
+                """
+                diff_res = client.models.generate_content(model="gemini-2.0-flash-lite", contents=diff_prompt)
+                latest_pulse = diff_res.text.strip() if diff_res else latest_pulse
+
+        # 🛡️ STEP 2: Security Scan
         from core.security_scanner import SecretScanner
         security_findings = SecretScanner().scan(target_path)
-        security_alert_text = "\n".join(security_findings) if security_findings else "Safe."
+        security_alert_text = "\n".join(security_findings) if security_findings else "Safe (No secrets detected)."
 
-        # 📊 STEP 2: Project Analysis
+        # 📊 STEP 3: Deep Project Analysis
         scanner = RepositoryScanner(target_path)
         data = scanner.scan()
         analyzer = ProjectAnalyzer(target_path)
         report = analyzer.analyze(data)
         builder = ReportBuilder(target_path)
         final_report = builder.build(data, report)
-        #
 
-        # 🎨 STEP 3: Themed Mermaid Generation
-        print(f"🎨 [{task_id}] Generating THEMED Architecture Diagram...")
-        
-        # 💡 PRO TIP: Hum Mermaid ko 'dark' theme aur 'blue' accent colors ke liye force kar rahe hain
+        # 🎨 STEP 4: Themed Mermaid Generation
+        print(f"🎨 [{task_id}] Generating Architecture Diagram...")
         diagram_prompt = f"""
-        Generate a professional Mermaid.js 'graph TD' flowchart.
-        
-        CONTEXT: {report.get('primary_stack')} | {report.get('key_dependencies')[:10]}
-        
-        STYLE RULES:
-        1. Start with this exact directive for a Dark/Blue theme:
-           %%{{init: {{'theme': 'base', 'themeVariables': {{ 'primaryColor': '#1e40af', 'primaryTextColor': '#fff', 'primaryBorderColor': '#3b82f6', 'lineColor': '#60a5fa', 'secondaryColor': '#111827', 'tertiaryColor': '#1f2937'}}}}}}%%
-        2. Format: A["Label"] --> B["Label"]
-        3. Output ONLY the raw Mermaid code.
+        Generate a professional Mermaid.js 'graph TD' flowchart for this architecture: {report.get('module_map')}.
+        DIRECTIVE: %%{{init: {{'theme': 'base', 'themeVariables': {{ 'primaryColor': '#1e40af', 'primaryTextColor': '#fff', 'primaryBorderColor': '#3b82f6', 'lineColor': '#60a5fa'}}}}}}%%
+        RULES: Output ONLY raw code. Use Subgraphs for Layers.
         """
-        
-        # ⚠️ NOTE: Model version ko 'gemini-2.0-flash-lite' rakho, 2.5 abhi exist nahi karta.
-        #
-        diagram_res = client.models.generate_content(model="gemini-2.5-flash-lite", contents=diagram_prompt)
+        diagram_res = client.models.generate_content(model="gemini-2.0-flash-lite", contents=diagram_prompt)
         mermaid_code = diagram_res.text.strip() if diagram_res else ""
 
-        # 📝 STEP 4: Master README Synthesis
-        final_prompt = f"""
+        # 📝 STEP 5: Master README Synthesis
+        master_prompt = f"""
         Act as a Senior Architect. Synthesize a README.md.
-        SECURITY FINDINGS: {security_alert_text}
-        MERMAID DIAGRAM: {mermaid_code}
-        PROJECT DATA: {final_report}
         
-        LAYOUT:
-        - Header with Badges
-        - ⚠️ SECURITY ALERT (If applicable)
-        - ## 📊 System Architecture
-          Insert Mermaid code block here.
-        - ## 🚀 Quick Start & Features
+        AI PULSE (LATEST CHANGES):
+        {latest_pulse}
+        
+        SECURITY STATUS: {security_alert_text}
+        ARCHITECTURE: {final_report}
+        MERMAID: {mermaid_code}
+        
+        LAYOUT RULES:
+        1. TOP: Display '## ⚡ AI Pulse' with the latest changes.
+        2. MIDDLE: Architecture section with Mermaid code block.
+        3. BOTTOM: Detailed technical documentation and setup guide.
         """
-        
-        gemini_result = client.models.generate_content(model=GEMINI_MODEL, contents=final_prompt)
+        gemini_result = client.models.generate_content(model="gemini-2.0-flash-lite", contents=master_prompt)
         markdown = gemini_result.text if gemini_result else ""
 
-        if not markdown: 
-            print(f"⚠️ [{task_id}] Gemini returned empty text.")
+        if not markdown:
+            print(f"⚠️ [{task_id}] Empty Markdown generated.")
             return
 
-        # 🚀 STEP 5: GITHUB ACTION - CREATE PR
+        # 🚀 STEP 6: GITHUB PR ACTION
         parts = repo_url.rstrip("/").split("/")
         owner, repo = parts[-2], parts[-1]
         
         async with httpx.AsyncClient() as http_client:
-            headers = {
-                "Authorization": f"token {token}",
-                "Accept": "application/vnd.github.v3+json"
-            }
-            base_url = f"[https://api.github.com/repos/](https://api.github.com/repos/){owner}/{repo}"
+            headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+            base_url = f"https://api.github.com/repos/{owner}/{repo}"
 
-            # Step A: Get README SHA
+            # A. Get SHA, B. Create Branch, C. Commit
             content_res = await http_client.get(f"{base_url}/contents/README.md", headers=headers)
             current_sha = content_res.json().get("sha") if content_res.status_code == 200 else None
 
-            # Step B: Create Branch
-            new_branch = f"readme-ai-{task_id}"
+            new_branch = f"ai-pulse-{task_id}"
             main_ref = await http_client.get(f"{base_url}/git/ref/heads/{branch}", headers=headers)
             main_sha = main_ref.json()["object"]["sha"]
 
-            await http_client.post(f"{base_url}/git/refs", headers=headers, json={
-                "ref": f"refs/heads/{new_branch}",
-                "sha": main_sha
-            })
+            await http_client.post(f"{base_url}/git/refs", headers=headers, json={"ref": f"refs/heads/{new_branch}", "sha": main_sha})
 
-            # Step C: Commit File
             encoded_content = base64.b64encode(markdown.encode()).decode()
             await http_client.put(f"{base_url}/contents/README.md", headers=headers, json={
-                "message": "docs: AI Documentation & Security Update 🤖",
-                "content": encoded_content,
-                "branch": new_branch,
-                "sha": current_sha
+                "message": f"docs: {latest_pulse[:50]}... 🤖",
+                "content": encoded_content, "branch": new_branch, "sha": current_sha
             })
 
-            # Step D: Open PR
-            pr_body = f"## AI Analysis Complete 🤖\nDetected a code push on `{branch}`."
+            # D. Open PR
+            pr_body = f"## AI Pulse: Analysis Complete 🤖\n\n**Latest Changes:**\n> {latest_pulse}\n\n**Visuals:** Updated Architecture Diagram included."
             if security_findings:
-                pr_body += "\n\n### 🚨 SECURITY WARNING\nPotential secrets were found. Check the README and revoke them ASAP!"
-            
-            pr_body += f"\n\n### 📊 Visuals Included\nGenerated a new Architecture Diagram based on the latest push."
-            pr_body += "\n\n_Generated by **README-ENGINE-PRO**_"
+                pr_body += "\n\n🚨 **Security Warning:** Potential secrets detected in this push!"
 
             pr_res = await http_client.post(f"{base_url}/pulls", headers=headers, json={
-                "title": "📝 AI Documentation & Security Update",
-                "body": pr_body,
-                "head": new_branch,
-                "base": branch
+                "title": "📝 AI pulse: Documentation & Architecture Update",
+                "body": pr_body, "head": new_branch, "base": branch
             })
 
             if pr_res.status_code == 201:
@@ -198,7 +187,6 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int)
     except Exception as e:
         print(f"❌ [{task_id}] Critical Error: {e}")
     finally:
-        # 6. Cleanup (Always cleanup unique folders)
         git_mgr.cleanup()
 
 # ---------------------------------------------------------
