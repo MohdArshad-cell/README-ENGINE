@@ -51,3 +51,25 @@ class GitManager:
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir, onerror=self._on_rm_error)
             print(f"🧹 Workspace cleaned: {self.temp_dir}")
+
+
+    # core/git_manager.py mein ye method add karo
+def get_diff(self, before_sha, after_sha):
+    """Do commits ke beech ka diff nikalta hai."""
+    try:
+        import subprocess
+        # --stat se humein files changed ki list milti hai
+        # -U0 se sirf changed lines milti hain (tokens bachane ke liye)
+        cmd = ["git", "-C", self.temp_dir, "diff", before_sha, after_sha, "--stat"]
+        diff_stat = subprocess.check_output(cmd).decode('utf-8')
+        
+        cmd_content = ["git", "-C", self.temp_dir, "diff", before_sha, after_sha, "-U0"]
+        diff_content = subprocess.check_output(cmd_content).decode('utf-8')
+        
+        return {
+            "stat": diff_stat,
+            "content": diff_content[:5000] # Token limit safety
+        }
+    except Exception as e:
+        print(f"❌ Diff extraction failed: {e}")
+        return None
