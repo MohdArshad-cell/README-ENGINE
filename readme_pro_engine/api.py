@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from google import genai
 
+
 # 🛠️ Core Engine Imports (Classes core folder se hi aayengi)
 from core.git_manager import GitManager
 from core.scanner import RepositoryScanner
@@ -62,11 +63,15 @@ def verify_signature(payload_body: bytes, signature_header: str):
 # ---------------------------------------------------------
 # 🤖 THE BACKGROUND WORKER (The "Ghost" in the Machine)
 # ---------------------------------------------------------
+
 async def process_webhook_task(repo_url: str, branch: str, installation_id: int, before_sha: str = None, after_sha: str = None):
-    # 1. Setup & Logging
+    # 1. Setup & Metadata Extraction
     task_id = f"{installation_id}_{int(time.time())}"
     print(f"🤖 Universal Bot started | Task: {task_id} | Repo: {repo_url}")
     
+    parts = repo_url.rstrip("/").split("/")
+    owner, repo = parts[-2], parts[-1]
+
     # 2. Get Installation Token
     token = get_installation_token(installation_id)
     if not token:
@@ -85,14 +90,14 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int,
 
     try:
         # ⚡ STEP 1: AI Changelog (Deep Diff)
-        latest_pulse = "Fresh analysis of the repository."
+        latest_pulse = "Initial repository analysis and documentation generation."
         if before_sha and after_sha and before_sha != "0000000000000000000000000000000000000000":
-            print(f"🔍 [{task_id}] Analyzing Code Diff (Changelog)...")
+            print(f"🔍 [{task_id}] Analyzing Code Diff...")
             diff_data = git_mgr.get_diff(before_sha, after_sha)
             if diff_data:
                 diff_prompt = f"""
                 Summarize these git changes into a 2-line technical 'Pulse' update.
-                Focus on the IMPACT (e.g., 'Refactored auth logic for speed' or 'Added Mermaid diagram support').
+                Focus on IMPACT (e.g., 'Refactored auth logic' or 'Added Docker support').
                 DIFF STATS: {diff_data['stat']}
                 DIFF SNIPPET: {diff_data['content']}
                 """
@@ -104,13 +109,22 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int,
         security_findings = SecretScanner().scan(target_path)
         security_alert_text = "\n".join(security_findings) if security_findings else "Safe (No secrets detected)."
 
-        # 📊 STEP 3: Deep Project Analysis
+        # 📊 STEP 3: Deep Project Analysis & Setup Estimation
         scanner = RepositoryScanner(target_path)
         data = scanner.scan()
         analyzer = ProjectAnalyzer(target_path)
         report = analyzer.analyze(data)
         builder = ReportBuilder(target_path)
         final_report = builder.build(data, report)
+
+        # ⏱️ Setup Time Estimation Logic
+        dep_count = len(final_report.get('tech_stack', {}).get('dependencies', []))
+        is_docker = any("docker" in str(f).lower() for f in data.get("structure", []))
+        
+        if is_docker: setup_time = "~1 min (Dockerized 🐳)"
+        elif dep_count > 30: setup_time = "~5 mins"
+        elif dep_count > 10: setup_time = "~3 mins"
+        else: setup_time = "~1 min"
 
         # 🎨 STEP 4: Themed Mermaid Generation
         print(f"🎨 [{task_id}] Generating Architecture Diagram...")
@@ -122,21 +136,28 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int,
         diagram_res = client.models.generate_content(model="gemini-2.0-flash-lite", contents=diagram_prompt)
         mermaid_code = diagram_res.text.strip() if diagram_res else ""
 
-        # 📝 STEP 5: Master README Synthesis
+        # 📝 STEP 5: Master README Synthesis (With Visual Alpha)
+        banner_url = f"https://socialify.git.ci/{owner}/{repo}/network?theme=Dark&showFork=true&showIssues=true&showStars=true"
+        
         master_prompt = f"""
-        Act as a Senior Architect. Synthesize a README.md.
+        Act as a Senior Architect. Synthesize a world-class README.md.
         
-        AI PULSE (LATEST CHANGES):
-        {latest_pulse}
+        DYNAMIC ASSETS:
+        - BANNER: {banner_url}
+        - SETUP TIME: {setup_time}
+        - REPO INFO: {owner}/{repo}
+        - AI PULSE: {latest_pulse}
+        - SECURITY: {security_alert_text}
+        - ARCHITECTURE: {final_report}
+        - MERMAID: {mermaid_code}
         
-        SECURITY STATUS: {security_alert_text}
-        ARCHITECTURE: {final_report}
-        MERMAID: {mermaid_code}
-        
-        LAYOUT RULES:
-        1. TOP: Display '## ⚡ AI Pulse' with the latest changes.
-        2. MIDDLE: Architecture section with Mermaid code block.
-        3. BOTTOM: Detailed technical documentation and setup guide.
+        STRICT LAYOUT RULES:
+        1. TOP: Display the BANNER image first.
+        2. HEADER: Project Title followed by Shields.io badges (Size, Last Commit, Issues).
+        3. INSIGHT: Add a badge or line for '⏱️ Estimated Setup: {setup_time}'.
+        4. ⚡ AI PULSE: A clear section for '{latest_pulse}'.
+        5. 🏛️ ARCHITECTURE: Mermaid diagram in a code block.
+        6. BOTTOM: Functional documentation and copy-paste setup guide.
         """
         gemini_result = client.models.generate_content(model="gemini-2.0-flash-lite", contents=master_prompt)
         markdown = gemini_result.text if gemini_result else ""
@@ -146,18 +167,15 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int,
             return
 
         # 🚀 STEP 6: GITHUB PR ACTION
-        parts = repo_url.rstrip("/").split("/")
-        owner, repo = parts[-2], parts[-1]
-        
         async with httpx.AsyncClient() as http_client:
             headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
             base_url = f"https://api.github.com/repos/{owner}/{repo}"
 
-            # A. Get SHA, B. Create Branch, C. Commit
+            # SHA, Branch, Commit logic
             content_res = await http_client.get(f"{base_url}/contents/README.md", headers=headers)
             current_sha = content_res.json().get("sha") if content_res.status_code == 200 else None
 
-            new_branch = f"ai-pulse-{task_id}"
+            new_branch = f"ai-update-{task_id}"
             main_ref = await http_client.get(f"{base_url}/git/ref/heads/{branch}", headers=headers)
             main_sha = main_ref.json()["object"]["sha"]
 
@@ -165,17 +183,28 @@ async def process_webhook_task(repo_url: str, branch: str, installation_id: int,
 
             encoded_content = base64.b64encode(markdown.encode()).decode()
             await http_client.put(f"{base_url}/contents/README.md", headers=headers, json={
-                "message": f"docs: {latest_pulse[:50]}... 🤖",
+                "message": f"docs: AI update - {latest_pulse[:40]}... 🤖",
                 "content": encoded_content, "branch": new_branch, "sha": current_sha
             })
 
-            # D. Open PR
-            pr_body = f"## AI Pulse: Analysis Complete 🤖\n\n**Latest Changes:**\n> {latest_pulse}\n\n**Visuals:** Updated Architecture Diagram included."
-            if security_findings:
-                pr_body += "\n\n🚨 **Security Warning:** Potential secrets detected in this push!"
+            # Open PR with Branded Body
+            pr_body = f"""
+## ⚡ AI Pulse Analysis Complete
 
+**Latest Changes Summary:**
+> {latest_pulse}
+
+**Upgrades Included:**
+- 🖼️ **Dynamic Socialify Banner** added for visual identity.
+- ⏱️ **Setup Estimation:** Project now marked as {setup_time}.
+- 📊 **Architecture Map:** Live Mermaid diagram updated.
+- 🛡️ **Security Scan:** {security_alert_text.split('.')[0]}.
+
+_Generated with ❤️ by README-ENGINE-PRO_
+            """
+            
             pr_res = await http_client.post(f"{base_url}/pulls", headers=headers, json={
-                "title": "📝 AI pulse: Documentation & Architecture Update",
+                "title": f"📝 AI Pulse: {latest_pulse[:50]}",
                 "body": pr_body, "head": new_branch, "base": branch
             })
 
