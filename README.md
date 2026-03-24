@@ -197,7 +197,7 @@ For inquiries, support, or collaboration, please reach out via:
 
 *   📧 **Email**: [arshadmohd8574@gmail.com](mailto:arshadmohd8574@gmail.com)
 *   📱 **WhatsApp**: [+91 7887096421](https://wa.me/7887096421)
-*   📍 **Location**: Lucknow / Remote
+*   📍 **Location**: Lucknow
 
 
 ## License
