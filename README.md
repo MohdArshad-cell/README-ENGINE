@@ -1,8 +1,7 @@
-# README Pro: Automated Documentation Engine v_02
+# README Pro: Automated Documentation Engine v_03
 
 
 
-<!-- Badges for key dependencies -->
 ![Next.js](https://img.shields.io/badge/Next.js-13%2B-black?style=flat&logo=next.js&logoColor=white) ![React](https://img.shields.io/badge/React-18%2B-blue?style=flat&logo=react&logoColor=white) ![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=flat&logo=python&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-latest-blue?style=flat&logo=typescript&logoColor=white) ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-black?style=flat&logo=tailwindcss&logoColor=white) ![Framer Motion](https://img.shields.io/badge/Framer_Motion-blueviolet?style=flat&logo=framer&logoColor=white) ![Lucide React](https://img.shields.io/badge/Lucide_React-blue?style=flat&logo=lucide&logoColor=white) ![React Hot Toast](https://img.shields.io/badge/React_Hot_Toast-orange?style=flat) ![React Markdown](https://img.shields.io/badge/React_Markdown-blue?style=flat) ![React Syntax Highlighter](https://img.shields.io/badge/React_Syntax_Highlighter-green?style=flat) ![ESLint](https://img.shields.io/badge/ESLint-4B32C3?style=flat&logo=eslint&logoColor=white)
 
 ## Executive Summary
