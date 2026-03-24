@@ -1,7 +1,7 @@
 import os
 import shutil
 import stat
-import uuid # 👈 Ye missing tha!
+import uuid
 from git import Repo
 
 class GitManager:
